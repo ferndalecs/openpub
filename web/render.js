@@ -420,8 +420,188 @@
       if (x1 - x0 > 0.5 && y1 - y0 > 0.5) rects.push({ x0, x1, y0, y1 });
     }
     if (!rects.length) return;
-    flow.opWrap = { rects, cw };
+    // Text can pass on both sides of a shape when its paragraphs start at the left (centred and
+    // right-aligned lines would need centring in each gap) and the frame has one column.
+    // (a table or picture in the text can't be split around a shape: such frames keep to one gap)
+    const twoSided = !(body.columns > 1) && body.paras.every((p) => (p.align === 'left' || p.align === 'justify' || !p.align) && !p.runs.some((r) => r.object));
+    flow.opWrap = { rects, cw, twoSided };
     buildFloats(flow);
+  }
+
+  const MIN_GAP = 12;
+
+  /**
+   * Text on both sides of a shape. CSS floats only push text in from the frame's edges, so where a
+   * shape sits in the middle (flow.opWrap.holes), each line that would run across it gets an
+   * invisible spacer at a word boundary: the line carries on at the far side of the shape, as in
+   * Publisher. Spacers have the class op-wrap, which the editor skips when it reads text back.
+   */
+  function fillHoles(flow, k) {
+    // start afresh: take the spacers out and join the pieces of text they split
+    for (const g of [...flow.querySelectorAll('.op-gap')]) {
+      const before = g.previousSibling, after = g.nextSibling;
+      g.remove();
+      if (before && after && after.opTail && before.nodeType === 1 && before.firstChild && before.firstChild.nodeType === 3 && after.firstChild && after.firstChild.nodeType === 3) {
+        before.firstChild.appendData(after.firstChild.data);
+        after.remove();
+      }
+    }
+    const W = flow.opWrap;
+    if (!W || !W.holes || !W.holes.length) return false;
+    const sh = W.shift || 0;
+    const tried = new Map();
+    let cursor = -Infinity, did = false;
+    for (let guard = 0; guard < 600; guard++) {
+      const fr = flow.getBoundingClientRect();
+      // the lines, with the pieces of text on each
+      const lines = [];
+      for (const para of flow.children) {
+        if (!para.classList.contains('op-para')) continue;
+        for (const span of para.children) {
+          const l = span.opLine;
+          if (!l || span.classList.contains('op-gap')) continue;
+          for (const r of span.getClientRects()) {
+            if (!r.height) continue;
+            const base = (r.top - fr.top) / k + l.base;
+            let line = lines.find((x) => Math.abs(x.base - base) < 0.6);
+            if (!line) lines.push((line = { base, above: 0, below: 0, parts: [] }));
+            line.above = Math.max(line.above, l.top);
+            line.below = Math.max(line.below, l.lh - l.top);
+            line.parts.push({ span, x0: (r.left - fr.left) / k, x1: (r.right - fr.left) / k, top: r.top, bottom: r.bottom });
+          }
+        }
+      }
+      lines.sort((a, b) => a.base - b.base);
+      let fixed = false;
+      for (const line of lines) {
+        const top = line.base - line.above - sh, bottom = line.base + line.below - sh;
+        if (top < cursor - 0.25) continue;
+        // the shapes in this line's way, from the left
+        // (line positions are measured from the drawn text, to about a fifth of a point)
+        // where a shape begins, not between the thin bands of a curved outline
+        const inWay = W.holes.filter((h) => h.y0 < bottom + (h.first ? 0.2 : -0.01) && h.y1 > top + 0.01).sort((a, b) => a.x0 - b.x0);
+        for (const h of inWay) {
+          // (several slabs give one shape several holes: take their widest extent on this line)
+          const x0 = Math.min(...inWay.filter((q) => q.x0 < h.x1 && q.x1 > h.x0).map((q) => q.x0));
+          const x1 = Math.max(...inWay.filter((q) => q.x0 < h.x1 && q.x1 > h.x0).map((q) => q.x1));
+          const crossing = line.parts.filter((q) => q.x1 > x0 + 0.5 && q.x0 < x1 - 0.5 && q.x1 - q.x0 > 0.01).sort((a, b) => a.x0 - b.x0)[0];
+          if (!crossing) continue;
+          const key = Math.round(top * 4) + ':' + Math.round(x0);
+          const n = tried.get(key) || 0;
+          if (n >= 2) continue;
+          tried.set(key, n + 1);
+          if (placeGap(crossing, x0, x1, fr, k, h.leftW, h.rightW)) { fixed = true; did = true; cursor = top; }
+          break;
+        }
+        if (fixed) break;
+      }
+      if (!fixed) break;
+    }
+    return did;
+  }
+
+  /** Puts a spacer before the word that reaches across x0 on this piece of a line, so that the
+   * word starts at x1. Returns false when there is nothing to move. */
+  function placeGap(part, x0, x1, fr, k, leftW, rightW) {
+    const span = part.span;
+    const tn = span.firstChild && span.firstChild.nodeType === 3 ? span.firstChild : null;
+    // The spacer is an empty copy of the text's own span, as wide as its left padding: a line
+    // holding nothing else keeps its height, so a word that doesn't fit after the shape can move
+    // down a line at a time, as in Publisher.
+    const mkGap = (w) => {
+      const g = span.cloneNode(false);
+      g.className = 'op-wrap op-gap';
+      g.removeAttribute('data-r');
+      g.removeAttribute('data-field');
+      g.contentEditable = 'false';
+      g.style.paddingLeft = pt(Math.max(0, w));
+      g.style.letterSpacing = '0';
+      return g;
+    };
+    const rng = document.createRange();
+    const box = (i) => {
+      rng.setStart(tn, i);
+      rng.setEnd(tn, i + 1);
+      // a character at a line end can report a box on each line: the one on this line counts
+      for (const r of rng.getClientRects()) if (r.bottom > part.top + 1 && r.top < part.bottom - 1 && r.width > 0) return r;
+      return null;
+    };
+    let at = 0, startX = part.x0, longWord = false;
+    if (tn && tn.data.length > 1 && !span.classList.contains('op-tab') && !(span.dataset && span.dataset.field)) {
+      const text = tn.data;
+      // the first character on this line that reaches past x0
+      let c = -1, first = -1;
+      for (let i = 0; i < text.length; i++) {
+        const r = box(i);
+        if (!r) continue;
+        if (first < 0) first = i;
+        if ((r.right - fr.left) / k > x0 + 0.3) { c = i; break; }
+      }
+      if (c < 0) return false;
+      // back to the start of its word (not past the start of this line)
+      let j = c;
+      while (j > first && !/\s/.test(text[j - 1])) j--;
+      if (j === first && first > 0 && !/\s/.test(text[first - 1]) && text[first - 1] !== '\u00AD') j = first; // a word carried on from the line above
+      at = j;
+      const r = box(Math.min(j, text.length - 1));
+      if (r) startX = (r.left - fr.left) / k;
+      // A "word" too long for any line (a row of underscores, say) is broken at line ends. It
+      // doesn't hop over the shape: it keeps to the wider side (Publisher).
+      let ws = c, we = c;
+      while (ws > 0 && !/\s/.test(text[ws - 1])) ws--;
+      while (we < text.length && !/\s/.test(text[we])) we++;
+      const cb = box(c);
+      const frameW = span.parentNode.getBoundingClientRect().width / k;
+      longWord = !!cb && (we - ws) * cb.width / k > frameW;
+      if (longWord && j === first) {
+        if (leftW >= rightW && c > first) {
+          // stay on the left: the line ends before the shape
+          const rest = tn.splitText(c);
+          const tail = span.cloneNode(false);
+          tail.appendChild(rest);
+          tail.opLine = span.opLine;
+          tail.opTail = true;
+          tail.opBelow = span.opBelow;
+          if (span.opOff != null) tail.opOff = span.opOff + [...tn.data].filter((ch) => ch !== '­').length;
+          span.after(tail);
+          const br = el('br', 'op-wrap op-gap');
+          tail.before(br);
+          return true;
+        }
+        // otherwise it starts after the shape (the spacer below)
+      }
+    }
+    if (startX >= x1 - 0.3) return false;
+    const gap = mkGap(x1 - startX);
+    let moved = span;
+    if (at > 0) {
+      // split the piece of text in two: the same formatting, the spacer between them
+      const tail = span.cloneNode(false);
+      const rest = tn.splitText(at);
+      tail.appendChild(rest);
+      tail.opLine = span.opLine;
+      tail.opTail = true;
+      tail.opBelow = span.opBelow;
+      if (span.opOff != null) tail.opOff = span.opOff + [...tn.data].filter((ch) => ch !== '\u00AD').length;
+      span.after(tail);
+      moved = tail;
+    }
+    // inside an unbroken run there is nowhere for the line to end before the spacer: end it
+    if (longWord && moved.previousSibling) moved.before(el('br', 'op-wrap op-gap'));
+    moved.before(gap);
+    // A word that doesn't fit after the shape goes to the next line whole (Publisher only breaks
+    // a word that is wider than the frame); browsers would break it to fill the space.
+    if (!longWord) moved.style.overflowWrap = 'normal';
+    // where justified text moved the word a little, correct the spacer
+    for (let n = 0; n < 2; n++) {
+      const r = moved.getClientRects()[0];
+      const g = gap.getClientRects()[0];
+      if (!r || !g || r.top > g.bottom - 1) break; // the word went to the next line
+      const off = x1 - (r.left - fr.left) / k;
+      if (Math.abs(off) < 0.15) break;
+      gap.style.paddingLeft = pt(Math.max(0, parseFloat(gap.style.paddingLeft) + off));
+    }
+    return true;
   }
 
   function buildFloats(flow) {
@@ -435,6 +615,8 @@
     // is what CSS floats can do): the widest, preferring the one the slab above used.
     const ys = Array.from(new Set(rects.flatMap((r) => [r.y0, r.y1]))).sort((a, b) => a - b);
     const slabs = [];
+    const holes = [];
+    flow.opWrap.holes = holes;
     let prev = null;
     // the free gaps between the shapes overlapping [a, b]
     const gapsIn = (a, b) => {
@@ -451,6 +633,23 @@
       if (b - a < 0.01) continue;
       const xs = gapsIn(a, b);
       let gap = [0, cw];
+      // gaps wide enough for a word: with two or more, the text uses all of them (the floats keep
+      // it between the first and the last; fillHoles makes each line skip the shapes in between)
+      const usable = xs && flow.opWrap.twoSided ? xs.filter((g) => g[1] - g[0] >= MIN_GAP) : null;
+      if (usable && usable.length >= 2) {
+        gap = [usable[0][0], usable[usable.length - 1][1]];
+        for (let n = 0; n + 1 < usable.length; n++) {
+          const h = { x0: usable[n][1], x1: usable[n + 1][0], y0: a, y1: b, leftW: usable[n][1] - usable[n][0], rightW: usable[n + 1][1] - usable[n + 1][0] };
+          // the top of a shape (no hole of the slab above continues into this one)
+          h.first = !holes.some((q) => Math.abs(q.y1 - a) < 0.01 && q.x0 < h.x1 && q.x1 > h.x0);
+          holes.push(h);
+        }
+        const lastSlab = slabs[slabs.length - 1];
+        if (lastSlab && Math.abs(lastSlab.b - a) < 0.01 && Math.abs(lastSlab.L - gap[0]) < 0.01 && Math.abs(lastSlab.R - gap[1]) < 0.01) lastSlab.b = b;
+        else slabs.push({ a, b, L: gap[0], R: gap[1] });
+        prev = null;
+        continue;
+      }
       if (xs) {
         let score = -Infinity;
         gap = [cw, cw];
@@ -527,6 +726,8 @@
     for (const flow of flows) {
       if (!flow.isConnected || !flow.opWrap) continue;
       alignWrapped(flow, k);
+      fillHoles(flow, k);
+      let snapped = false;
       const done = new Set();
       for (let pass = 0; pass < 8; pass++) {
         const lines = flowLines(flow, k);
@@ -547,8 +748,10 @@
           break;
         }
         if (!changed) break;
+        snapped = true;
         buildFloats(flow);
       }
+      if (snapped) fillHoles(flow, k); // the floats changed: place the spacers again
       alignWrapped(flow, k);
     }
   }
@@ -1390,7 +1593,9 @@
           for (const b of bands) rects.push([b[0] - d[0] - f.x, b[1] - f.y, b[2] + d[2] - f.x, b[3] - f.y, o.seq]);
           continue;
         }
-        let w = [r[0] - d[0], r[1] - d[1], r[2] + d[2], r[3] + d[3]];
+        // tight and through wrapping keep the distance at the sides only (measured: probe-wrap)
+        const close = mode === 'tight' || mode === 'through';
+        let w = [r[0] - d[0], close ? r[1] : r[1] - d[1], r[2] + d[2], close ? r[3] : r[3] + d[3]];
         if (mode === 'topbottom') w = [fr[0] - 1, w[1], fr[2] + 1, w[3]];
         rects.push([w[0] - f.x, w[1] - f.y, w[2] - f.x, w[3] - f.y]);
       }

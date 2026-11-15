@@ -92,7 +92,9 @@ A `.pub` file is an OLE compound file with three parts, all read in `core/src/pu
 space lines. `web/render.js` draws a page from that JSON with HTML/CSS/SVG (`web/shapes.js` has
 the outlines of the ~150 Office autoshapes), so text shaping, fonts and printing come from the
 browser engine. Text wrapping around shapes is done with CSS floats, one pair per horizontal
-slab of the frame, and then corrected after layout so lines keep to Publisher's line grid. The editor (`web/app.js`) changes the same JSON model
+slab of the frame, and then corrected after layout: lines keep to Publisher's line grid, and
+where a shape sits in the middle of a frame each line gets an invisible spacer at a word
+boundary so the text carries on at the shape's far side. The editor (`web/app.js`) changes the same JSON model
 and redraws the page; text typed into the page is read back from the DOM into paragraphs and
 runs.
 
@@ -123,14 +125,17 @@ The editor has automated checks that run inside a debug build:
 `tools/apptest.js`, `tools/filetest.js` for the File screen and status bar, `tools/findtest.js` for Find &
 Replace and the text buttons, `tools/pagetest.js` for the shapes gallery, align/flip and page
 setup, `tools/extratest.js` for WordArt, effects, links, table styles, picture adjustments,
-the page picture and the designs); results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the
+the page picture and the designs, `tools/wraptest.js` for editing text that flows round a
+shape); results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the
 feature samples to Word, opens each in Word and compares them with Publisher's pages.
 
 ## Known gaps
 
 * Rendering:
-  * Text flows on one side of a shape that sits in the middle of a frame (the wider gap);
-    Publisher fills the gaps on both sides.
+  * Text flows on both sides of a shape in the middle of a frame, as in Publisher, except in
+    centred or right-aligned text, frames with columns and frames holding an inline table or
+    picture, where it keeps to the wider side. Line breaks beside a shape can differ a little.
+  * A text frame Publisher lays out in columns can come out as one column.
   * WordArt: plain, arched and wavy styles are drawn; 3-D/extruded styles, vertical (stacked)
     text, multi-stop and preset gradients and textures come out flat or approximated.
   * BorderArt (picture borders) isn't drawn; gradients have two colours.

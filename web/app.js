@@ -1225,6 +1225,8 @@
         s.addRange(r);
       }
     }
+    // what reading the text back gives before anything is typed: the test for "was it changed?"
+    editing.read = JSON.stringify(readFlow(flow, flow.opOwner.paras));
     flow.addEventListener('blur', onEditBlur);
     flow.addEventListener('keydown', onEditKey);
     flow.addEventListener('paste', onEditPaste);
@@ -1285,7 +1287,7 @@
     ed.flow.contentEditable = 'false';
     const paras = readFlow(ed.flow, ed.owner.paras);
     const after = JSON.stringify(paras);
-    if (after !== ed.before) {
+    if (after !== ed.read) {
       // record the page as it was before typing started
       ed.owner.paras = JSON.parse(ed.before);
       pushUndo(ed.page);

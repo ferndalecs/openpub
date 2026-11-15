@@ -853,7 +853,9 @@ pub fn compute_wraps(doc: &mut Document) {
                 if r[0] - d[0] <= fr[0] + m[0] + SIDE && r[1] - d[1] <= fr[1] + m[1] && r[2] + d[2] >= fr[2] - m[2] - SIDE && r[3] + d[3] >= fr[3] - m[3] {
                     continue;
                 }
-                let mut w = [r[0] - d[0], r[1] - d[1], r[2] + d[2], r[3] + d[3]];
+                // tight and through wrapping keep the distance at the sides only
+                let close = wrap == "tight" || wrap == "through";
+                let mut w = [r[0] - d[0], if close { r[1] } else { r[1] - d[1] }, r[2] + d[2], if close { r[3] } else { r[3] + d[3] }];
                 if wrap == "topbottom" {
                     w[0] = fr[0] - 1.0;
                     w[2] = fr[2] + 1.0;
