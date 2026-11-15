@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Makes OpenPub the default app for .pub and .opub.
+
+  IMPORTANT: a default-associations file REPLACES the whole list it is applied to. If your
+  organisation already deploys one, add these two <Association> lines to that file instead of
+  using this one on its own. Export the current list from a reference PC with:
+      dism /online /Export-DefaultAppAssociations:C:\Temp\Current.xml
+
+  Apply (see README.md):
+      dism /online /Import-DefaultAppAssociations:"C:\Path\DefaultAssociations.xml"
+  or Group Policy: Computer Configuration > Administrative Templates > Windows Components >
+      File Explorer > "Set a default associations configuration file"
+-->
+<DefaultAssociations>
+  <Association Identifier=".pub" ProgId="OpenPub.Publication" ApplicationName="OpenPub" />
+  <Association Identifier=".opub" ProgId="OpenPub.Document" ApplicationName="OpenPub" />
+</DefaultAssociations>

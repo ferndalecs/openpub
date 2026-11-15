@@ -1,0 +1,14 @@
+# build output
+target/
+installer/dist/
+
+# scratch output of the tools
+out/
+__pycache__/
+*.pyc
+tools/hyphen/node_modules/
+
+# Test documents and Microsoft Publisher's renders of them stay local: they are other people's
+# publications. Put your own .pub files in samples/ (tools/samples.py lists what's there).
+samples/
+truth/

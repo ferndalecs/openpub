@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  OpenPubSetup.exe - WiX Burn bundle that wraps OpenPub.msi.
+  Built by build.ps1 (WiX Toolset 5.0.2 + WixToolset.BootstrapperApplications.wixext), which supplies:
+    -d Version=<x.y.z>  -d MsiPath=<dist\OpenPub.msi>  -d IconPath=<openpub.ico>
+
+  Interactive run : shows the MSI's own wizard (install folder, .pub association, desktop shortcut).
+  Silent run      : OpenPubSetup.exe /quiet [ASSOCIATEPUB=0|1] [DESKTOPSHORTCUT=0|1] [INSTALLFOLDER="path"]
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+
+  <?ifndef Version ?>
+  <?define Version = "0.1.0" ?>
+  <?endif?>
+  <?ifndef Manufacturer ?>
+  <?define Manufacturer = "OpenPub" ?>
+  <?endif?>
+  <?ifndef MsiPath ?>
+  <?define MsiPath = "dist\OpenPub.msi" ?>
+  <?endif?>
+  <?ifndef IconPath ?>
+  <?define IconPath = "..\app\assets\openpub.ico" ?>
+  <?endif?>
+
+  <!-- UpgradeCode is fixed for the life of the bundle: never change it. -->
+  <Bundle Name="OpenPub"
+          Version="$(Version)"
+          Manufacturer="$(Manufacturer)"
+          UpgradeCode="F3EC3432-4647-4088-A401-1525F68E34AE"
+          IconSourceFile="$(IconPath)"
+          Compressed="yes"
+          bal:CommandLineVariables="caseInsensitive">
+
+    <BootstrapperApplication>
+      <!-- Empty LicenseUrl = no licence step. No Options button: the MSI wizard has the options. -->
+      <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense"
+                                              LicenseUrl=""
+                                              SuppressOptionsUI="yes" />
+    </BootstrapperApplication>
+
+    <!-- Options that can be given on the OpenPubSetup.exe command line (NAME=value). -->
+    <Variable Name="ASSOCIATEPUB" Type="string" Value="1" bal:Overridable="yes" />
+    <Variable Name="DESKTOPSHORTCUT" Type="string" Value="0" bal:Overridable="yes" />
+    <Variable Name="INSTALLFOLDER" Type="string" Value="" bal:Overridable="yes" />
+
+    <Chain>
+      <!-- Full-UI runs (UI level 4) show the MSI's own dialogs; /passive and /quiet do not. -->
+      <MsiPackage Id="OpenPubMsi"
+                  SourceFile="$(MsiPath)"
+                  Compressed="yes"
+                  Vital="yes"
+                  bal:DisplayInternalUICondition="WixBundleUILevel &gt;= 4 AND NOT WixBundleInstalled">
+        <MsiProperty Name="ASSOCIATEPUB" Value="[ASSOCIATEPUB]" />
+        <MsiProperty Name="DESKTOPSHORTCUT" Value="[DESKTOPSHORTCUT]" />
+        <MsiProperty Name="INSTALLFOLDER" Value="[INSTALLFOLDER]" Condition="INSTALLFOLDER" />
+      </MsiPackage>
+    </Chain>
+  </Bundle>
+</Wix>

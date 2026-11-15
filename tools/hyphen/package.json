@@ -1,0 +1,9 @@
+{
+  "name": "openpub-hyphen-build",
+  "private": true,
+  "description": "Build-time only: sources for web/hyphen.js",
+  "dependencies": {
+    "hypher": "0.2.5",
+    "hyphenation.en-gb": "0.2.1"
+  }
+}

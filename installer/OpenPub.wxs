@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  OpenPub.msi - per-machine x64 installer for OpenPub.
+  Built by build.ps1 (WiX Toolset 5.0.2 + WixToolset.UI.wixext), which supplies:
+    -d Version=<x.y.z from app\Cargo.toml>  -d ExePath=<openpub.exe>  -d IconPath=<openpub.ico>
+
+  Public properties (msiexec command line):
+    ASSOCIATEPUB=1|0     1 (default): make OpenPub the machine default handler for .pub
+                         0: only register OpenPub as an available "Open with" handler for .pub
+    DESKTOPSHORTCUT=0|1  1: all-users desktop shortcut (default 0)
+    INSTALLFOLDER=path   install directory (default %ProgramFiles%\OpenPub)
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <?ifndef Version ?>
+  <?define Version = "0.1.0" ?>
+  <?endif?>
+  <?ifndef Manufacturer ?>
+  <?define Manufacturer = "OpenPub" ?>
+  <?endif?>
+  <?ifndef ExePath ?>
+  <?define ExePath = "..\target\release\openpub.exe" ?>
+  <?endif?>
+  <?ifndef IconPath ?>
+  <?define IconPath = "..\app\assets\openpub.ico" ?>
+  <?endif?>
+
+  <!-- UpgradeCode is fixed for the life of the product: never change it. The ProductCode is
+       generated afresh on every build, so every build is a major upgrade of the previous one. -->
+  <Package Name="OpenPub"
+           Manufacturer="$(Manufacturer)"
+           Version="$(Version)"
+           UpgradeCode="DC329018-7013-414A-B698-7C6613FB1707"
+           Scope="perMachine"
+           Compressed="yes"
+           InstallerVersion="500">
+
+    <SummaryInformation Description="OpenPub - viewer and editor for Microsoft Publisher (.pub) files"
+                        Keywords="Installer,OpenPub,Publisher,.pub" />
+
+    <!-- A newer (or same-version) build replaces the old one; an older build is refused. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of OpenPub is already installed. Uninstall it first if you really want to install this older version." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- Add/Remove Programs -->
+    <Icon Id="OpenPubIcon.ico" SourceFile="$(IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="OpenPubIcon.ico" />
+    <Property Id="ARPCOMMENTS" Value="Viewer and editor for Microsoft Publisher (.pub) files" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+
+    <!-- Options. Secure = passed from the UI/client side to the elevated install. -->
+    <Property Id="ASSOCIATEPUB" Value="1" Secure="yes" />
+    <Property Id="DESKTOPSHORTCUT" Value="0" Secure="yes" />
+    <Property Id="INSTALLFOLDER" Secure="yes" />
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="OpenPub" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="DesktopFolder" />
+
+    <Feature Id="Main" Title="OpenPub" Level="1" AllowAbsent="no" AllowAdvertise="no"
+             ConfigurableDirectory="INSTALLFOLDER">
+      <ComponentRef Id="OpenPubExe" />
+      <ComponentRef Id="AppRegistration" />
+      <ComponentRef Id="FileTypes" />
+      <ComponentRef Id="DefaultPrograms" />
+      <ComponentRef Id="PubDefault" />
+      <ComponentRef Id="DesktopShortcut" />
+    </Feature>
+
+    <!-- ===== Program file + Start Menu shortcut ===== -->
+    <Component Id="OpenPubExe" Directory="INSTALLFOLDER" Guid="6B0C1C5E-2B7F-4A7C-9E0A-5D0C6B7C3A11">
+      <File Id="OpenPubExe" Source="$(ExePath)" Name="openpub.exe" KeyPath="yes">
+        <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="OpenPub"
+                  Description="Open and edit Microsoft Publisher files"
+                  WorkingDirectory="INSTALLFOLDER" Advertise="no" />
+      </File>
+    </Component>
+
+    <!-- ===== Install info (handy for SCCM detection) + App Paths + Applications\openpub.exe ===== -->
+    <Component Id="AppRegistration" Directory="INSTALLFOLDER">
+      <RegistryKey Root="HKLM" Key="Software\OpenPub">
+        <RegistryValue Name="Version" Value="$(Version)" KeyPath="yes" />
+        <RegistryValue Name="InstallPath" Value="[INSTALLFOLDER]" />
+      </RegistryKey>
+
+      <RegistryKey Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\openpub.exe">
+        <RegistryValue Value="[INSTALLFOLDER]openpub.exe" />
+        <RegistryValue Name="Path" Value="[INSTALLFOLDER]" />
+      </RegistryKey>
+
+      <RegistryKey Root="HKLM" Key="Software\Classes\Applications\openpub.exe">
+        <RegistryValue Name="FriendlyAppName" Value="OpenPub" />
+        <RegistryValue Key="DefaultIcon" Value="&quot;[INSTALLFOLDER]openpub.exe&quot;,0" />
+        <RegistryValue Key="shell\open\command" Value="&quot;[INSTALLFOLDER]openpub.exe&quot; &quot;%1&quot;" />
+        <RegistryValue Key="SupportedTypes" Name=".pub" Value="" />
+        <RegistryValue Key="SupportedTypes" Name=".opub" Value="" />
+      </RegistryKey>
+    </Component>
+
+    <!-- ===== ProgIDs and extensions (always written) ===== -->
+    <Component Id="FileTypes" Directory="INSTALLFOLDER">
+      <!-- .pub : Microsoft Publisher documents -->
+      <RegistryKey Root="HKLM" Key="Software\Classes\OpenPub.Publication">
+        <RegistryValue Value="Publisher Document" KeyPath="yes" />
+        <RegistryValue Name="FriendlyTypeName" Value="Publisher Document" />
+        <RegistryValue Key="DefaultIcon" Value="&quot;[INSTALLFOLDER]openpub.exe&quot;,0" />
+        <RegistryValue Key="shell" Value="open" />
+        <RegistryValue Key="shell\open" Name="FriendlyAppName" Value="OpenPub" />
+        <RegistryValue Key="shell\open\command" Value="&quot;[INSTALLFOLDER]openpub.exe&quot; &quot;%1&quot;" />
+      </RegistryKey>
+
+      <!-- .opub : OpenPub's own document format -->
+      <RegistryKey Root="HKLM" Key="Software\Classes\OpenPub.Document">
+        <RegistryValue Value="OpenPub Document" />
+        <RegistryValue Name="FriendlyTypeName" Value="OpenPub Document" />
+        <RegistryValue Key="DefaultIcon" Value="&quot;[INSTALLFOLDER]openpub.exe&quot;,0" />
+        <RegistryValue Key="shell" Value="open" />
+        <RegistryValue Key="shell\open" Name="FriendlyAppName" Value="OpenPub" />
+        <RegistryValue Key="shell\open\command" Value="&quot;[INSTALLFOLDER]openpub.exe&quot; &quot;%1&quot;" />
+      </RegistryKey>
+
+      <!-- OpenPub owns .opub outright -->
+      <RegistryValue Root="HKLM" Key="Software\Classes\.opub" Value="OpenPub.Document" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\.opub\OpenWithProgids" Name="OpenPub.Document" Value="" />
+
+      <!-- .pub : always offer OpenPub in "Open with"; the default itself is the PubDefault component -->
+      <RegistryValue Root="HKLM" Key="Software\Classes\.pub\OpenWithProgids" Name="OpenPub.Publication" Value="" />
+    </Component>
+
+    <!-- ===== Default Programs registration (Settings > Default apps, "Open with") ===== -->
+    <Component Id="DefaultPrograms" Directory="INSTALLFOLDER">
+      <RegistryKey Root="HKLM" Key="Software\OpenPub\Capabilities">
+        <RegistryValue Name="ApplicationName" Value="OpenPub" KeyPath="yes" />
+        <RegistryValue Name="ApplicationDescription" Value="Viewer and editor for Microsoft Publisher (.pub) files" />
+        <RegistryValue Name="ApplicationIcon" Value="&quot;[INSTALLFOLDER]openpub.exe&quot;,0" />
+        <RegistryValue Key="FileAssociations" Name=".pub" Value="OpenPub.Publication" />
+        <RegistryValue Key="FileAssociations" Name=".opub" Value="OpenPub.Document" />
+      </RegistryKey>
+      <RegistryValue Root="HKLM" Key="Software\RegisteredApplications" Name="OpenPub" Value="Software\OpenPub\Capabilities" />
+    </Component>
+
+    <!-- ===== ASSOCIATEPUB: make OpenPub.Publication the machine-wide default ProgID for .pub ===== -->
+    <Component Id="PubDefault" Directory="INSTALLFOLDER" Condition="ASSOCIATEPUB &lt;&gt; &quot;0&quot;">
+      <RegistryValue Root="HKLM" Key="Software\Classes\.pub" Value="OpenPub.Publication" KeyPath="yes" />
+    </Component>
+
+    <!-- ===== DESKTOPSHORTCUT: all-users desktop shortcut ===== -->
+    <Component Id="DesktopShortcut" Directory="INSTALLFOLDER" Condition="DESKTOPSHORTCUT = &quot;1&quot;">
+      <RegistryValue Root="HKLM" Key="Software\OpenPub" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+      <Shortcut Id="DesktopShortcut" Directory="DesktopFolder" Name="OpenPub"
+                Description="Open and edit Microsoft Publisher files"
+                Target="[INSTALLFOLDER]openpub.exe" WorkingDirectory="INSTALLFOLDER" />
+    </Component>
+
+    <!-- ===== Interactive UI (ignored under /qn, /qb) ===== -->
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+
+    <!-- The check boxes are bound to private helper properties (a check box counts as ticked whenever
+         its property has any value, even "0"); the Options dialog's Next button copies them back into
+         the public ASSOCIATEPUB / DESKTOPSHORTCUT properties as explicit 1 / 0. -->
+    <SetProperty Id="OptAssociatePub" Value="1" Sequence="ui" Before="CostInitialize"
+                 Condition="ASSOCIATEPUB &lt;&gt; &quot;0&quot;" />
+    <SetProperty Id="OptDesktopShortcut" Value="1" Sequence="ui" Before="CostInitialize"
+                 Condition="DESKTOPSHORTCUT = &quot;1&quot;" />
+
+    <UI Id="OpenPubUI">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+
+      <DialogRef Id="BrowseDlg" />
+      <DialogRef Id="DiskCostDlg" />
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+
+      <Dialog Id="OptionsDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="300" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Options" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="300" Height="15" Transparent="yes" NoPrefix="yes" Text="Choose how OpenPub is set up on this computer." />
+
+        <Control Id="AssocCheck" Type="CheckBox" X="20" Y="62" Width="330" Height="17" Property="OptAssociatePub" CheckBoxValue="1"
+                 Text="Open Publisher (.pub) files with OpenPub by default" />
+        <Control Id="AssocNote" Type="Text" X="37" Y="81" Width="313" Height="44" NoPrefix="yes"
+                 Text="OpenPub is always added to the &quot;Open with&quot; list for .pub files. If another program (for example Microsoft Publisher) has already been chosen as the default on this computer, Windows keeps that choice until it is changed in Settings &gt; Default apps." />
+
+        <Control Id="DesktopCheck" Type="CheckBox" X="20" Y="134" Width="330" Height="17" Property="OptDesktopShortcut" CheckBoxValue="1"
+                 Text="Create a desktop shortcut" />
+
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)">
+          <Publish Event="NewDialog" Value="InstallDirDlg" />
+        </Control>
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
+          <Publish Property="ASSOCIATEPUB" Value="1" Order="1" Condition="OptAssociatePub" />
+          <Publish Property="ASSOCIATEPUB" Value="0" Order="2" Condition="NOT OptAssociatePub" />
+          <Publish Property="DESKTOPSHORTCUT" Value="1" Order="3" Condition="OptDesktopShortcut" />
+          <Publish Property="DESKTOPSHORTCUT" Value="0" Order="4" Condition="NOT OptDesktopShortcut" />
+          <Publish Event="NewDialog" Value="VerifyReadyDlg" Order="5" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- Wizard order: Welcome > Install folder > Options > Ready > Progress > Finish -->
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
+
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Condition="NOT Installed" />
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Condition="Installed AND PATCH" />
+
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="SetTargetPath" Value="[WIXUI_INSTALLDIR]" Order="1" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="OptionsDlg" Order="2" />
+      <Publish Dialog="InstallDirDlg" Control="ChangeFolder" Property="_BrowseProperty" Value="[WIXUI_INSTALLDIR]" Order="1" />
+      <Publish Dialog="InstallDirDlg" Control="ChangeFolder" Event="SpawnDialog" Value="BrowseDlg" Order="2" />
+
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="OptionsDlg" Order="1" Condition="NOT Installed" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Order="2" Condition="Installed AND NOT PATCH" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2" Condition="Installed AND PATCH" />
+
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg" />
+    </UI>
+    <UIRef Id="WixUI_Common" />
+
+  </Package>
+</Wix>
