@@ -65,17 +65,8 @@
 </svg>
 <header id="bar">
   <div class="row1">
-    <button id="open" class="primary" title="Open a Publisher or OpenPub file (Ctrl+O)">Open…</button>
+    <button id="filebtn" class="primary" title="New, open, save, export, print and information about this publication" aria-haspopup="dialog">File</button>
     <button id="save" title="Save as an OpenPub document (Ctrl+S)" disabled>Save</button>
-    <div class="menu">
-      <button id="exportbtn" aria-haspopup="true" aria-expanded="false" aria-controls="exportmenu" disabled>Export ▾</button>
-      <div class="pop" id="exportmenu" hidden>
-        <button id="saveas">Save as…</button>
-        <button id="pdf">PDF…</button>
-        <button id="docx">Word document…</button>
-        <button id="print">Print… <kbd>Ctrl+P</kbd></button>
-      </div>
-    </div>
     <span class="sep"></span>
     <button id="undo" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>↶</button>
     <button id="redo" title="Redo (Ctrl+Y)" aria-label="Redo" disabled>↷</button>
@@ -99,12 +90,6 @@
     <label class="toggle" title="Show facing pages side by side"><input id="spread" type="checkbox"> Two pages</label>
     <span class="grow"></span>
     <span id="docname"></span>
-    <div class="menu">
-      <button id="morebtn" aria-haspopup="true" aria-expanded="false" aria-controls="moremenu" title="More" aria-label="More">⋯</button>
-      <div class="pop right" id="moremenu" hidden>
-        <button id="assoc">Open .pub files with OpenPub…</button>
-      </div>
-    </div>
   </div>
 
   <div class="tabs" role="tablist" aria-label="Ribbon">
@@ -505,15 +490,67 @@
 <main>
   <nav id="thumbs" aria-label="Pages"></nav>
   <section id="view" tabindex="0" aria-label="Pages of the publication">
-    <div id="empty">
-      <h1>OpenPub</h1>
-      <p>Open a Microsoft Publisher file to view and edit it.</p>
-      <p><button id="open2" class="primary">Open a file…</button></p>
-      <p class="hint">You can also drop a file onto this window.</p>
-    </div>
     <div id="pages"></div>
   </section>
 </main>
+<!-- The File screen: covers the window; also the start screen when nothing is open -->
+<div id="file" role="dialog" aria-modal="true" aria-label="File" hidden>
+  <nav id="filenav" aria-label="File">
+    <button id="fileback" title="Back to the publication (Esc)">←&nbsp; Back</button>
+    <div class="brand">OpenPub</div>
+    <button data-pane="new" aria-pressed="false">New</button>
+    <button data-pane="open" aria-pressed="false">Open</button>
+    <hr>
+    <button id="fsave" class="needs-doc">Save</button>
+    <button id="saveas" class="needs-doc">Save As…</button>
+    <button data-pane="export" class="needs-doc" aria-pressed="false">Export</button>
+    <button id="print" class="needs-doc">Print…</button>
+    <hr>
+    <button data-pane="info" class="needs-doc" aria-pressed="false">Info</button>
+    <span class="grow"></span>
+    <button data-pane="options" aria-pressed="false">Options</button>
+  </nav>
+  <div id="filebody">
+    <section id="fp-new" hidden>
+      <h1>New</h1>
+      <p class="lead">Start a blank publication. Choose the page size.</p>
+      <div id="newcards" class="cards"></div>
+    </section>
+    <section id="fp-open" hidden>
+      <h1>Open</h1>
+      <p class="lead">Open a Microsoft Publisher (.pub) or OpenPub (.opub) file. You can also drop a file onto this window.</p>
+      <p><button id="open" class="primary big">Browse…</button></p>
+      <h2>Recent</h2>
+      <div id="recent" role="list"></div>
+    </section>
+    <section id="fp-export" hidden>
+      <h1>Export</h1>
+      <p class="lead">Save a copy of this publication in another format. The publication itself isn't changed.</p>
+      <div class="rows">
+        <button id="pdf" class="rowbtn"><b>PDF</b><span>Every page at its real size, with real text. Best for sharing and printing.</span></button>
+        <button id="docx" class="rowbtn"><b>Word document</b><span>Editable text boxes, tables and pictures in a .docx file. Word lays text out itself, so line breaks can differ.</span></button>
+      </div>
+    </section>
+    <section id="fp-info" hidden>
+      <h1>Info</h1>
+      <dl id="infogrid"></dl>
+      <h2>Fonts</h2>
+      <p class="lead">Fonts this publication uses. A font that isn't installed on this computer is shown with a similar one, so text may break differently.</p>
+      <div id="infofonts"></div>
+      <div id="infonotes" hidden>
+        <h2>Opened with some differences</h2>
+        <ul id="infonotelist"></ul>
+      </div>
+    </section>
+    <section id="fp-options" hidden>
+      <h1>Options</h1>
+      <div class="rows">
+        <button id="assoc" class="rowbtn"><b>Open .pub files with OpenPub…</b><span>Registers OpenPub for Publisher files for your Windows account, then shows the Windows Default apps page.</span></button>
+      </div>
+      <p class="lead" id="about"></p>
+    </section>
+  </div>
+</div>
 <div id="notes" hidden role="status"></div>
 <script src="hyphen.js"></script>
 <script src="render.js"></script>

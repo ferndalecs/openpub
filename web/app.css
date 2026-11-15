@@ -171,20 +171,66 @@ main { flex: 1; display: flex; min-height: 0; }
 .selbox .guide { position: absolute; background: var(--sel); pointer-events: none; }
 .band { position: absolute; border: 1px solid var(--sel); background: rgba(26,115,232,.1); pointer-events: none; z-index: 6; }
 
-#empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #e9e7e2; text-align: center; }
-#empty h1 { font-size: 30px; font-weight: 600; margin: 0 0 6px; letter-spacing: .01em; }
-#empty p { margin: 6px 0; font-size: 14px; }
-#empty .hint { color: #b9bcc2; font-size: 12px; }
-#empty button { font: inherit; height: 34px; padding: 0 16px; border-radius: 6px; border: 1px solid var(--accent); cursor: pointer; }
-body.has-doc #empty { display: none; }
 body.drag #view::after { content: "Drop to open"; position: absolute; inset: 12px; border: 2px dashed #fff; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 20px; background: rgba(15,110,95,.35); pointer-events: none; }
 
-#notes { position: fixed; right: 14px; bottom: 14px; max-width: 440px; background: #2c2a26; color: #f1efe9; padding: 10px 14px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.4); font-size: 12.5px; line-height: 1.45; user-select: text; z-index: 40; }
+#notes { position: fixed; right: 14px; bottom: 14px; max-width: 440px; background: #2c2a26; color: #f1efe9; padding: 10px 14px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.4); font-size: 12.5px; line-height: 1.45; user-select: text; z-index: 60; }
+
+/* ---- the File screen ---------------------------------------------------------------------- */
+#file { position: fixed; inset: 0; z-index: 50; display: flex; background: #faf9f6; color: var(--ink); font-size: 14px; }
+#filenav { flex: none; width: 210px; background: var(--accent); color: #fff; display: flex; flex-direction: column; padding: 10px 0 12px; }
+#filenav .brand { font-size: 21px; font-weight: 600; padding: 14px 22px 16px; letter-spacing: .01em; }
+#filenav button { font: inherit; color: inherit; background: none; border: 0; border-left: 4px solid transparent; text-align: left; padding: 0 22px 0 18px; height: 40px; cursor: pointer; }
+#filenav button:hover:not(:disabled) { background: rgba(255,255,255,.14); }
+#filenav button[aria-pressed=true] { background: rgba(255,255,255,.2); border-left-color: #fff; font-weight: 600; }
+#filenav button:disabled { opacity: .45; cursor: default; }
+#filenav button:focus-visible { outline: 2px solid #fff; outline-offset: -3px; }
+#filenav hr { border: 0; border-top: 1px solid rgba(255,255,255,.28); margin: 8px 18px; width: auto; }
+#fileback { margin-bottom: 2px; }
+#fileback[hidden] + .brand { padding-top: 22px; }
+#filebody { flex: 1; overflow: auto; padding: 34px 48px 40px; user-select: text; }
+#filebody section { max-width: 900px; }
+#filebody h1 { font-size: 27px; font-weight: 400; margin: 0 0 8px; color: var(--accent); }
+#filebody h2 { font-size: 15px; font-weight: 600; margin: 28px 0 8px; }
+#filebody .lead { color: var(--muted); margin: 0 0 18px; max-width: 640px; line-height: 1.45; }
+#filebody button { font: inherit; color: inherit; cursor: pointer; }
+#filebody button.primary { color: var(--accent-ink); }
+#filebody button.big { height: 38px; padding: 0 22px; border-radius: 6px; border: 1px solid var(--accent); font-size: 14px; }
+#filebody button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cards { display: flex; flex-wrap: wrap; gap: 18px; }
+.card { width: 168px; background: none; border: 1px solid transparent; border-radius: 8px; padding: 12px 8px 10px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.card:hover { background: var(--hover); border-color: var(--bar-line); }
+.card .sheetbox { height: 124px; display: flex; align-items: flex-end; justify-content: center; }
+.card .mini { background: #fff; border: 1px solid #b9b4aa; box-shadow: 0 2px 6px rgba(0,0,0,.16); }
+.card b { font-weight: 600; }
+.card span { color: var(--muted); font-size: 12px; }
+.rows { display: flex; flex-direction: column; gap: 8px; max-width: 640px; }
+.rowbtn { text-align: left; background: #fff; border: 1px solid var(--bar-line); border-radius: 8px; padding: 12px 16px; display: flex; flex-direction: column; gap: 3px; }
+.rowbtn:hover { background: var(--hover); border-color: var(--accent); }
+.rowbtn span { color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+#recent { display: flex; flex-direction: column; max-width: 760px; }
+#recent .none { color: var(--muted); padding: 6px 0; }
+.recent { display: flex; align-items: center; border-radius: 6px; }
+.recent:hover { background: var(--hover); }
+.recent .openit { flex: 1; min-width: 0; text-align: left; background: none; border: 0; padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; border-radius: 6px; }
+.recent .openit b, .recent .openit span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent .openit span { color: var(--muted); font-size: 12px; }
+.recent.gone .openit b { color: var(--muted); text-decoration: line-through; }
+.recent .forget { flex: none; visibility: hidden; background: none; border: 0; width: 32px; height: 32px; border-radius: 5px; color: var(--muted); font-size: 16px; margin-right: 4px; }
+.recent:hover .forget, .recent .forget:focus-visible { visibility: visible; }
+.recent .forget:hover { background: #ddd8cf; color: var(--ink); }
+#infogrid { display: grid; grid-template-columns: max-content 1fr; gap: 7px 22px; margin: 14px 0 0; }
+#infogrid dt { color: var(--muted); }
+#infogrid dd { margin: 0; overflow-wrap: anywhere; }
+#infofonts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 22px; }
+#infofonts .bad { color: #a3520c; }
+#infofonts .ok { color: var(--muted); }
+#infonotelist { margin: 0; padding-left: 20px; line-height: 1.5; }
+body.drag #file::after { content: "Drop to open"; position: absolute; inset: 12px; border: 2px dashed var(--accent); border-radius: 10px; display: flex; align-items: center; justify-content: center; color: var(--accent); font-size: 20px; background: rgba(213,235,230,.8); pointer-events: none; }
 
 @media print {
   html, body { height: auto; }
   body { display: block; overflow: visible; background: #fff; }
-  #bar, #thumbs, #notes, #empty, #masterbar, .selbox, .band { display: none !important; }
+  #bar, #thumbs, #notes, #file, #masterbar, .selbox, .band { display: none !important; }
   main, #view { display: block; overflow: visible; }
   #pages { display: block; padding: 0; }
   .row { display: block; }

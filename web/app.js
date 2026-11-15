@@ -1039,11 +1039,13 @@
     if (r.italic) o.italic = true;
     if (r.underline) o.underline = true;
     if (r.script) o.script = r.script;
+    if (r.tracking) o.tracking = r.tracking;
+    if (r.kerning) o.kerning = r.kerning;
     if (r.field) o.field = r.field;
     if (r.object) o.object = r.object;
     return o;
   }
-  const sameStyle = (a, b) => a.font === b.font && a.size === b.size && !!a.bold === !!b.bold && !!a.italic === !!b.italic && !!a.underline === !!b.underline && a.color === b.color && (a.script || 0) === (b.script || 0);
+  const sameStyle = (a, b) => a.font === b.font && a.size === b.size && !!a.bold === !!b.bold && !!a.italic === !!b.italic && !!a.underline === !!b.underline && a.color === b.color && (a.script || 0) === (b.script || 0) && (a.tracking || 0) === (b.tracking || 0) && (a.kerning || 0) === (b.kerning || 0);
 
   /** Reads the runs of one paragraph element (or a fragment of one). */
   function readRuns(node, fallback) {
@@ -1550,7 +1552,7 @@
     const has = !!doc && !busy;
     const s = !!sel && !busy;
     const n = sel ? sel.shapes.length : 0;
-    en(['save', 'exportbtn', 'addtext', 'addpic', 'addtable', 'addrect', 'addellipse', 'addline', 'addpage', 'inspage', 'duppage', 'selall', 'mastermode', 'paste'], has);
+    en(['save', 'addtext', 'addpic', 'addtable', 'addrect', 'addellipse', 'addline', 'addpage', 'inspage', 'duppage', 'selall', 'mastermode', 'paste'], has);
     en(['delpage'], has && doc.pages.length > 1);
     en(['pageup'], has && current > 0);
     en(['pagedown'], has && current < doc.pages.length - 1);
@@ -2475,6 +2477,156 @@
     noteTimer = setTimeout(() => { n.hidden = true; }, ms || 12000);
   }
 
+  // ---- the File screen ----------------------------------------------------------------------
+
+  const fileOpen = () => !$('file').hidden;
+  let fileReturn = null;
+
+  function showFile(pane) {
+    commitEdit();
+    closeMenus();
+    if (!fileOpen()) fileReturn = document.activeElement;
+    for (const b of document.querySelectorAll('#filenav .needs-doc')) b.disabled = !doc;
+    if (!doc && !['new', 'open', 'options'].includes(pane)) pane = 'open';
+    $('fileback').hidden = !doc;
+    for (const sec of document.querySelectorAll('#filebody > section')) sec.hidden = sec.id !== 'fp-' + pane;
+    let cur = null;
+    for (const b of document.querySelectorAll('#filenav [data-pane]')) {
+      const on = b.dataset.pane === pane;
+      b.setAttribute('aria-pressed', String(on));
+      if (on) cur = b;
+    }
+    if (pane === 'open') fillRecent();
+    if (pane === 'new') fillNew();
+    if (pane === 'info') fillInfo();
+    $('file').hidden = false;
+    $('filebody').scrollTop = 0;
+    if (cur) cur.focus();
+  }
+
+  function hideFile() {
+    if (!doc || !fileOpen()) return; // with nothing open it is the start screen
+    $('file').hidden = true;
+    if (fileReturn && fileReturn.isConnected && fileReturn !== document.body) fileReturn.focus(); else view.focus();
+    fileReturn = null;
+  }
+
+  const mk = (tag, cls, text) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  };
+
+  async function fillRecent() {
+    const box = $('recent');
+    let list = [];
+    try { list = await (await fetch('recent.json?v=' + Date.now())).json(); } catch (e) { list = []; }
+    box.textContent = '';
+    if (!list.length) {
+      box.appendChild(mk('div', 'none', 'Files you open will be listed here.'));
+      return;
+    }
+    for (const f of list) {
+      const row = mk('div', 'recent' + (f.exists ? '' : ' gone'));
+      row.setAttribute('role', 'listitem');
+      const open = mk('button', 'openit');
+      open.title = f.path;
+      open.appendChild(mk('b', '', f.name));
+      open.appendChild(mk('span', '', f.exists ? f.folder : f.folder + '  (not found)'));
+      open.addEventListener('click', () => send({ cmd: 'openRecent', path: f.path }));
+      const forget = mk('button', 'forget', '×');
+      forget.title = 'Remove from this list';
+      forget.setAttribute('aria-label', 'Remove ' + f.name + ' from this list');
+      forget.addEventListener('click', () => { send({ cmd: 'forgetRecent', path: f.path }); row.remove(); if (!box.children.length) fillRecent(); });
+      row.appendChild(open);
+      row.appendChild(forget);
+      box.appendChild(row);
+    }
+  }
+
+  const MM = 72 / 25.4;
+  const NEW_SIZES = [
+    ['A4', 'portrait · 21 × 29.7 cm', 210 * MM, 297 * MM],
+    ['A4', 'landscape · 29.7 × 21 cm', 297 * MM, 210 * MM],
+    ['A5', 'portrait · 14.8 × 21 cm', 148 * MM, 210 * MM],
+    ['A5', 'landscape · 21 × 14.8 cm', 210 * MM, 148 * MM],
+    ['A3', 'portrait · 29.7 × 42 cm', 297 * MM, 420 * MM],
+    ['A3', 'landscape · 42 × 29.7 cm', 420 * MM, 297 * MM],
+    ['Letter', 'portrait · 8.5 × 11 in', 612, 792],
+  ];
+  function fillNew() {
+    const box = $('newcards');
+    if (box.children.length) return;
+    for (const [name, what, w, h] of NEW_SIZES) {
+      const card = mk('button', 'card');
+      const sheet = mk('div', 'sheetbox');
+      const mini = mk('div', 'mini');
+      const k = 118 / (420 * MM); // A3's long side fills the box
+      mini.style.width = Math.round(w * k) + 'px';
+      mini.style.height = Math.round(h * k) + 'px';
+      sheet.appendChild(mini);
+      card.appendChild(sheet);
+      card.appendChild(mk('b', '', name));
+      card.appendChild(mk('span', '', what));
+      card.addEventListener('click', () => send({ cmd: 'new', width: w, height: h }));
+      box.appendChild(card);
+    }
+  }
+
+  /** Whether the browser has a font of this name (text set in it measures differently from the
+   * fallbacks). */
+  let fontProbe = null;
+  function fontInstalled(name) {
+    if (!fontProbe) fontProbe = document.createElement('canvas').getContext('2d');
+    const sample = 'mmmmmmmmmmlliWQ@ 0123456789';
+    return ['monospace', 'serif', 'sans-serif'].some((base) => {
+      fontProbe.font = `72px ${base}`;
+      const a = fontProbe.measureText(sample).width;
+      fontProbe.font = `72px "${name.replace(/"/g, '')}", ${base}`;
+      return Math.abs(fontProbe.measureText(sample).width - a) > 0.01;
+    });
+  }
+
+  function fillInfo() {
+    if (!doc) return;
+    const grid = $('infogrid');
+    grid.textContent = '';
+    const row = (k, v) => { grid.appendChild(mk('dt', '', k)); grid.appendChild(mk('dd', '', v)); };
+    const cm = (v) => (Math.round(v / 72 * 2.54 * 10) / 10).toString();
+    row('Name', (doc.name || 'Untitled') + (dirty ? '  (unsaved changes)' : ''));
+    row('Location', doc.path || 'Not saved yet');
+    const kind = /\.pub$/i.test(doc.path || '') ? 'Microsoft Publisher file. Saving makes an OpenPub (.opub) copy; the .pub file is never changed.' : 'OpenPub document';
+    row('Type', kind);
+    row('Pages', String(doc.pages.length));
+    row('Page size', `${cm(doc.width)} × ${cm(doc.height)} cm`);
+    let pics = 0;
+    const count = (list) => { for (const sh of list) { if (sh.image != null) pics++; if (sh.children) count(sh.children); } };
+    for (const pg of doc.pages) count(pg.shapes);
+    row('Pictures', String(pics));
+    // fonts
+    const names = new Set();
+    const walk = (sh) => {
+      for (const o of owners(sh)) for (const para of o.paras) for (const r of para.runs) if (r.font && (r.text || '').trim()) names.add(r.font);
+      if (sh.wordart && sh.wordart.font) names.add(sh.wordart.font);
+      for (const c of sh.children || []) walk(c);
+    };
+    for (const pg of doc.pages) for (const sh of pg.shapes) walk(sh);
+    const fonts = $('infofonts');
+    fonts.textContent = '';
+    if (!names.size) fonts.appendChild(mk('span', 'ok', 'No text yet.'));
+    for (const n of [...names].sort((a, b) => a.localeCompare(b))) {
+      const ok = fontInstalled(n);
+      fonts.appendChild(mk('span', '', n));
+      fonts.appendChild(mk('span', ok ? 'ok' : 'bad', ok ? 'Installed on this computer' : 'Not installed · shown with a similar font'));
+    }
+    const notes = doc.notes || [];
+    $('infonotes').hidden = !notes.length;
+    const ul = $('infonotelist');
+    ul.textContent = '';
+    for (const t of notes) ul.appendChild(mk('li', '', t));
+  }
+
   function fillFonts() {
     const names = new Set(['Arial', 'Calibri', 'Cambria', 'Century Gothic', 'Comic Sans MS', 'Consolas', 'Cooper Black', 'Courier New', 'Georgia', 'Impact', 'Segoe UI', 'Tahoma', 'Times New Roman', 'Trebuchet MS', 'Verdana']);
     const walk = (s) => {
@@ -2519,6 +2671,7 @@
       build();
       buildThumbs();
       updateButtons();
+      showFile('open'); // the start screen
       return;
     }
     doc = data;
@@ -2535,6 +2688,8 @@
     nextSeq = Math.max(1000000, maxSeq(doc) + 1);
     hideSel();
     document.body.classList.add('has-doc');
+    $('file').hidden = true;
+    fileReturn = null;
     $('docname').textContent = data.name || '';
     $('pagecount').textContent = 'of ' + doc.pages.length;
     current = 0;
@@ -2606,13 +2761,16 @@
   const num = (id) => parseFloat(String($(id).value).replace(',', '.'));
   const onChange = (id, fn) => $(id).addEventListener('change', (e) => fn(e.target.value, e));
   on('open', () => send({ cmd: 'open' }));
-  on('open2', () => send({ cmd: 'open' }));
   on('save', () => save(false));
-  on('saveas', () => save(true));
-  on('pdf', exportPdf);
-  on('docx', () => doc && send({ cmd: 'docx', doc: docJson() }));
-  on('print', printAll);
+  on('fsave', () => { hideFile(); save(false); });
+  on('saveas', () => { hideFile(); save(true); });
+  on('pdf', () => { hideFile(); exportPdf(); });
+  on('docx', () => { if (!doc) return; hideFile(); send({ cmd: 'docx', doc: docJson() }); });
+  on('print', () => { hideFile(); printAll(); });
   on('assoc', () => send({ cmd: 'associate' }));
+  on('filebtn', () => showFile(doc ? 'info' : 'open'));
+  on('fileback', hideFile);
+  for (const b of document.querySelectorAll('#filenav [data-pane]')) b.addEventListener('click', () => showFile(b.dataset.pane));
   on('undo', () => restore(undoStack, redoStack));
   on('redo', () => restore(redoStack, undoStack));
   on('prev', () => doc && goTo(spreadOn() ? spreadStep(current, -1) : current - 1));
@@ -2748,7 +2906,7 @@
   });
 
   // drop-down menus
-  for (const [btn, menu] of [['exportbtn', 'exportmenu'], ['morebtn', 'moremenu'], ['bulmenu', 'bulpop'], ['nummenu', 'numpop'], ['spbtn', 'sppop'], ['addtable', 'tblpop']]) {
+  for (const [btn, menu] of [['bulmenu', 'bulpop'], ['nummenu', 'numpop'], ['spbtn', 'sppop'], ['addtable', 'tblpop']]) {
     $(btn).addEventListener('click', (e) => {
       e.stopPropagation();
       const open = $(menu).hidden;
@@ -2780,6 +2938,13 @@
     const key = e.key.toLowerCase();
     if (e.key === 'Escape' && document.querySelector('.pop:not([hidden])')) { closeMenus(); return; }
     if (ctrl && key === 'o') { e.preventDefault(); send({ cmd: 'open' }); return; }
+    if (ctrl && key === 'n') { e.preventDefault(); showFile('new'); return; }
+    if (fileOpen()) {
+      // the File screen is in front: only its own keys work
+      if (e.key === 'Escape' && doc) { e.preventDefault(); hideFile(); }
+      if (ctrl && (key === 's' || key === 'p' || key === 'z' || key === 'y')) e.preventDefault();
+      return;
+    }
     if (ctrl && key === 's') { e.preventDefault(); save(e.shiftKey); return; }
     if (ctrl && key === 'p') { e.preventDefault(); printAll(); return; }
     if (ctrl && (e.key === '+' || e.key === '=')) { e.preventDefault(); stepZoom(1); return; }
@@ -2844,8 +3009,8 @@
     drag: (v) => document.body.classList.toggle('drag', !!v),
     error: (msg) => showNotes([msg]),
     note: (msg) => showNotes([msg], 6000),
-    saved: (name) => {
-      if (doc) doc.name = name;
+    saved: (name, path) => {
+      if (doc) { doc.name = name; if (path) doc.path = path; }
       dirty = true; // force the title refresh below
       setDirty(false);
       showNotes(['Saved ' + name], 3000);

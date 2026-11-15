@@ -8,6 +8,7 @@
 mod assoc;
 mod opub;
 mod pdf;
+mod recent;
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -48,6 +49,8 @@ enum UserEvent {
     /// Ask for a file and open it.
     Choose,
     Open(PathBuf),
+    /// Start a blank publication with this page size (points).
+    New { width: f64, height: f64 },
     Loaded { path: PathBuf, result: Result<(String, Vec<Image>), String> },
     Save { doc: String, ask: bool, then: Then, forced: Option<PathBuf> },
     ExportDocx { doc: String, forced: Option<PathBuf> },
@@ -76,6 +79,7 @@ fn serve(state: &Mutex<State>, request: Request<Vec<u8>>) -> Response<Cow<'stati
         "app.js" => respond(js, APP_JS.as_bytes().into(), false),
         "render.js" => respond(js, openpub_core::export::RENDER_JS.as_bytes().into(), false),
         "hyphen.js" => respond(js, openpub_core::export::HYPHEN_JS.as_bytes().into(), false),
+        "recent.json" => respond("application/json; charset=utf-8", recent::json().into_bytes().into(), false),
         "doc.json" => {
             let st = state.lock().unwrap();
             let body = st.json.clone().unwrap_or_else(|| "{}".into());
@@ -108,7 +112,23 @@ fn load(path: &Path) -> Result<(String, Vec<Image>), String> {
     // the page only needs to know how many pictures there are
     value["images"] = serde_json::Value::Array(images.iter().map(|i| serde_json::json!({ "mime": i.mime, "orientation": i.orientation })).collect());
     value["name"] = file_name(path).into();
+    value["path"] = path.to_string_lossy().to_string().into();
     Ok((value.to_string(), images))
+}
+
+/// A blank one-page publication, as JSON for the page.
+fn blank(width: f64, height: f64, name: &str) -> String {
+    let mut doc = Document { width, height, default_tab: 36.0, ..Default::default() };
+    doc.pages.push(openpub_core::model::Page { name: String::new(), number: 1, shapes: Vec::new() });
+    // line spacing needs the metrics of the fonts people are likely to pick
+    for font in ["Calibri", "Arial", "Times New Roman", "Cambria", "Georgia", "Verdana", "Tahoma", "Segoe UI", "Comic Sans MS", "Century Gothic", "Arial Black"] {
+        if let Some(m) = openpub_core::fonts::metrics(font) {
+            doc.fonts.insert(font.to_string(), m);
+        }
+    }
+    let mut value = serde_json::to_value(&doc).unwrap_or_default();
+    value["name"] = name.into();
+    value.to_string()
 }
 
 /// The document the page sent, with the pictures put back.
@@ -139,6 +159,8 @@ fn main() -> wry::Result<()> {
         }
     }
     let state = Arc::new(Mutex::new(State::default()));
+    let testing = test_script.is_some();
+    let mut untitled = 0;
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
@@ -257,6 +279,9 @@ fn main() -> wry::Result<()> {
                         st.dirty = false;
                     }
                     window.set_title(&format!("{} – OpenPub", file_name(&path)));
+                    if !testing {
+                        recent::add(&path);
+                    }
                     let _ = webview.evaluate_script("window.OpenPubApp && OpenPubApp.reload()");
                     if let Some(js) = test_script.take() {
                         // test scripts write their results to out/ under the current directory
@@ -268,9 +293,28 @@ fn main() -> wry::Result<()> {
                 Err(e) => {
                     let title = state.lock().unwrap().path.as_deref().map(|p| format!("{} – OpenPub", file_name(p))).unwrap_or_else(|| "OpenPub".into());
                     window.set_title(&title);
+                    if !path.is_file() {
+                        recent::remove(&path);
+                    }
                     error(&webview, &format!("Couldn't open {}: {e}", path.display()));
                 }
             },
+            Event::UserEvent(UserEvent::New { width, height }) => {
+                if !discard_ok(&state, &window) {
+                    return;
+                }
+                untitled += 1;
+                let name = format!("Publication{untitled}");
+                {
+                    let mut st = state.lock().unwrap();
+                    st.json = Some(blank(width.clamp(36.0, 14400.0), height.clamp(36.0, 14400.0), &name));
+                    st.images = Vec::new();
+                    st.path = None;
+                    st.dirty = false;
+                }
+                window.set_title(&format!("{name} – OpenPub"));
+                let _ = webview.evaluate_script("window.OpenPubApp && OpenPubApp.reload()");
+            }
             Event::UserEvent(UserEvent::Save { doc, ask, then, forced }) => {
                 let current = state.lock().unwrap().path.clone();
                 let target = match &current {
@@ -283,11 +327,14 @@ fn main() -> wry::Result<()> {
                                 dlg = dlg.set_directory(dir);
                             }
                             dlg = dlg.set_file_name(format!("{}.opub", p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Publication".into())));
+                        } else {
+                            dlg = dlg.set_file_name("Publication.opub");
                         }
                         dlg.save_file().map(|p| if is_opub(&p) { p } else { p.with_extension("opub") })
                     }
                 };
                 let Some(target) = target else { return };
+                let keep = forced.is_none() && !testing;
                 let result = {
                     let st = state.lock().unwrap();
                     document_from(&doc, &st.images).and_then(|d| opub::write(&d, &target))
@@ -300,7 +347,10 @@ fn main() -> wry::Result<()> {
                             st.dirty = false;
                         }
                         window.set_title(&format!("{} – OpenPub", file_name(&target)));
-                        let _ = webview.evaluate_script(&format!("window.OpenPubApp && OpenPubApp.saved({})", js_string(&file_name(&target))));
+                        if keep {
+                            recent::add(&target);
+                        }
+                        let _ = webview.evaluate_script(&format!("window.OpenPubApp && OpenPubApp.saved({}, {})", js_string(&file_name(&target)), js_string(&target.to_string_lossy())));
                         if then == Then::Close {
                             *control_flow = ControlFlow::Exit;
                         }
@@ -390,6 +440,18 @@ fn on_message(body: &str, state: &Mutex<State>, proxy: &EventLoopProxy<UserEvent
     let forced = || if cfg!(debug_assertions) { msg["path"].as_str().map(PathBuf::from) } else { None };
     let event = match msg["cmd"].as_str() {
         Some("open") => UserEvent::Choose,
+        // only files from the recent list: the page can't name arbitrary paths
+        Some("openRecent") => match msg["path"].as_str().map(PathBuf::from) {
+            Some(p) if recent::contains(&p) => UserEvent::Open(p),
+            _ => return,
+        },
+        Some("forgetRecent") => {
+            if let Some(p) = msg["path"].as_str() {
+                recent::remove(Path::new(p));
+            }
+            return;
+        }
+        Some("new") => UserEvent::New { width: msg["width"].as_f64().unwrap_or(595.276), height: msg["height"].as_f64().unwrap_or(841.89) },
         Some("save") => UserEvent::Save { doc: doc(), ask: false, then: if msg["then"] == "close" { Then::Close } else { Then::Nothing }, forced: forced() },
         Some("saveAs") => UserEvent::Save { doc: doc(), ask: true, then: Then::Nothing, forced: forced() },
         Some("docx") => UserEvent::ExportDocx { doc: doc(), forced: forced() },
