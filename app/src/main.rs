@@ -68,12 +68,28 @@ enum UserEvent {
     Drag(bool),
 }
 
+/// What the page may load: only its own files and the open document's pictures. Nothing from the
+/// network, no scripts but the program's own, no frames, plug-ins or form posts - so even a
+/// document crafted to smuggle something into the page has nowhere to send or fetch anything.
+const CONTENT_POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'";
+
 fn respond(mime: &str, body: Cow<'static, [u8]>, cache: bool) -> Response<Cow<'static, [u8]>> {
+    // (a type that can't go in a header - from a damaged file - is sent as plain data)
+    let mime = if mime.bytes().all(|b| b.is_ascii_graphic() || b == b' ') && !mime.is_empty() { mime } else { "application/octet-stream" };
     Response::builder()
         .header(CONTENT_TYPE, mime)
         .header(CACHE_CONTROL, if cache { "max-age=31536000, immutable" } else { "no-store" })
+        .header("Content-Security-Policy", CONTENT_POLICY)
+        .header("X-Content-Type-Options", "nosniff")
         .body(body)
-        .unwrap()
+        .unwrap_or_else(|_| Response::new(Cow::Borrowed(&b""[..])))
+}
+
+/// The page is only ever the program's own (served as openpub://localhost, which WebView2 shows
+/// as http://openpub.localhost).
+fn own_page(url: &str) -> bool {
+    let u = url.to_ascii_lowercase();
+    ["openpub://localhost/", "http://openpub.localhost/", "https://openpub.localhost/"].iter().any(|p| u.starts_with(p)) || u == "about:blank"
 }
 
 fn serve(state: &Mutex<State>, request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
@@ -183,7 +199,19 @@ fn main() -> wry::Result<()> {
     let ipc_state = state.clone();
     let ipc_proxy = proxy.clone();
     let drop_proxy = proxy.clone();
-    let webview = WebViewBuilder::new()
+    // WebView2 keeps its working files (cache, settings) in a folder: by default next to the
+    // program, which ordinary users can't write to once it is installed in Program Files. Use the
+    // person's own profile.
+    let data_dir = std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("OpenPub").join("WebView2"));
+    if let Some(d) = &data_dir {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let mut web_context = wry::WebContext::new(data_dir);
+    let webview = WebViewBuilder::new_with_web_context(&mut web_context)
+        // the window never leaves the program's own page, opens no other windows, downloads nothing
+        .with_navigation_handler(|url| own_page(&url))
+        .with_new_window_req_handler(|_url, _features| wry::NewWindowResponse::Deny)
+        .with_download_started_handler(|_url, _path| false)
         .with_custom_protocol("openpub".into(), move |_id, request| serve(&serve_state, request))
         .with_ipc_handler(move |req: Request<String>| on_message(req.body(), &ipc_state, &ipc_proxy))
         .with_drag_drop_handler(move |e| {
@@ -277,7 +305,8 @@ fn main() -> wry::Result<()> {
                 window.set_title(&format!("Opening {}… – OpenPub", file_name(&path)));
                 let proxy = proxy.clone();
                 std::thread::spawn(move || {
-                    let result = load(&path);
+                    // a file damaged in a way the reader doesn't expect must not take the program down
+                    let result = std::panic::catch_unwind(|| load(&path)).unwrap_or_else(|_| Err("the file is damaged or isn't a publication OpenPub can read".into()));
                     let _ = proxy.send_event(UserEvent::Loaded { path, result });
                 });
             }

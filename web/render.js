@@ -1661,7 +1661,8 @@
     ctx.wraps = computeWraps(page);
     flushViews();
     ctx.chains = chainViews(doc, index, ctx);
-    if (page.background) {
+    // (only a plain colour: this goes into a style)
+    if (/^#[0-9a-f]{6}$/i.test(page.background || '')) {
       const bg = el('div', 'op-pagebg');
       bg.style.cssText = `position:absolute;left:0;top:0;width:100%;height:100%;background:${page.background};-webkit-print-color-adjust:exact;print-color-adjust:exact`;
       pg.appendChild(bg);

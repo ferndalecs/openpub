@@ -101,6 +101,31 @@ runs.
 `web/hyphen.js` is generated: `cd tools/hyphen && npm install`, then
 `node tools/build-hyphen.js` (Hypher + en-GB patterns).
 
+## Security
+
+OpenPub opens files other people made, so it treats them as untrusted:
+
+* The file readers are written in Rust (memory-safe); a damaged file gives an error message.
+  Compressed parts have size limits.
+* The window is a WebView2 page that only ever shows the program's own files. A content security
+  policy allows nothing from the network, no scripts but the program's own, no frames and no
+  form posts; navigation to other sites, new windows and downloads are refused. OpenPub itself
+  makes no network connections.
+* Text from a document is put on the page as text, never as HTML. Colours read from `.opub`
+  files must be plain `#rrggbb` values.
+* Links on objects open only after a question, and only `http`, `https` and `mailto` addresses.
+  Nothing embedded in a document is ever run.
+* WebView2 keeps its working files in `%LOCALAPPDATA%\OpenPub\WebView2`, the recent-files list
+  and settings in `%LOCALAPPDATA%\OpenPub`. The program writes nowhere else unless asked to
+  save or export.
+* `cargo audit` checks the Rust dependencies against the RustSec advisory database;
+  `tools/sectest.js` checks the page's restrictions against a hostile file made by
+  `tools/make-hostile-opub.py`.
+
+The web engine is Microsoft's **WebView2 Runtime**, which is updated by Microsoft (Edge Update,
+or WSUS / Configuration Manager), not by OpenPub: keep it current - see
+[installer/README.md](installer/README.md). The installers are not code-signed.
+
 ## Checking against Publisher
 
 The test documents aren't in the repository (they are other people's publications): put your

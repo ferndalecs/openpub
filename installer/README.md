@@ -146,6 +146,14 @@ missing, deploy Microsoft's *Evergreen Standalone Installer* as an SCCM dependen
 MicrosoftEdgeWebView2RuntimeInstallerX64.exe /silent /install
 ```
 
+**Keeping it updated.** The WebView2 Runtime is the web engine that draws OpenPub's window, so
+its security updates matter in the same way Microsoft Edge's do. It updates itself through the
+Microsoft Edge Update service; where that is blocked (no internet access, or Edge updates
+managed centrally), distribute WebView2 Runtime updates with WSUS or Configuration Manager (they
+are published to Microsoft Update; Configuration Manager lists them under Microsoft Edge
+Management). Check that the installed version (`pv` below) keeps pace with the current Microsoft
+Edge Stable version. OpenPub's own files for each user are in `%LOCALAPPDATA%\OpenPub`.
+
 Detection: registry value `pv` (a version, not empty and not `0.0.0.0`) under
 `HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`.
 
