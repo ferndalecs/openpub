@@ -50,9 +50,11 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
     rotate (handle, exact angle, ±90°), nudge with the arrow keys, duplicate, delete, cut/copy/
     paste, group/ungroup, bring to front/send to back, exact position and size in cm.
   * Text: double-click to type (also in table cells and linked text boxes, where the text flows
-    on through the chain); font, size, bold/italic/underline, colour, alignment, bullets and
-    numbering, indents, line and paragraph spacing; text-box margins, vertical alignment and
-    columns.
+    on through the chain); font, size (and larger/smaller steps), bold/italic/underline,
+    strikethrough, superscript/subscript, colour, alignment, bullets and numbering, indents,
+    line and paragraph spacing; text-box margins, vertical alignment and columns.
+  * Find & Replace (Ctrl+F / Ctrl+H) across the whole publication, with Match case, Replace and
+    Replace All (one undo step).
   * Shapes and pictures: fill colour and transparency, outline colour/width/dash; replace a
     picture, crop it with handles or by percentages.
   * Tables: insert; add/delete rows and columns, merge/split cells, cell fill, vertical
@@ -113,7 +115,8 @@ samples and their slugs.
 
 The editor has automated checks that run inside a debug build:
 `target/debug/openpub.exe samples/year7-booklet.pub --eval=tools/edittest.js` (and
-`tools/apptest.js`, `tools/filetest.js` for the File screen and status bar); results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the
+`tools/apptest.js`, `tools/filetest.js` for the File screen and status bar, `tools/findtest.js` for Find &
+Replace and the text buttons); results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the
 feature samples to Word, opens each in Word and compares them with Publisher's pages.
 
 ## Known gaps
@@ -124,6 +127,8 @@ feature samples to Word, opens each in Word and compares them with Publisher's p
   * WordArt: plain, arched and wavy styles are drawn; 3-D/extruded styles, vertical (stacked)
     text, multi-stop and preset gradients and textures come out flat or approximated.
   * BorderArt (picture borders) isn't drawn; gradients have two colours.
+  * Horizontal scaling of characters isn't drawn (strikethrough, small caps, all caps, outline,
+    emboss, engrave, tracking and kerning are).
   * Hyphenation uses English (UK) patterns for all text, so line breaks in other languages
     (e.g. Welsh) can differ from Publisher's.
   * When text doesn't fit a centred or bottom-aligned frame, Publisher drops the lines that

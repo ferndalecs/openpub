@@ -1063,13 +1063,16 @@
     if (r.italic) o.italic = true;
     if (r.underline) o.underline = true;
     if (r.script) o.script = r.script;
+    if (r.strike) o.strike = true;
+    if (r.effect) o.effect = r.effect;
+    if (r.caps) o.caps = r.caps;
     if (r.tracking) o.tracking = r.tracking;
     if (r.kerning) o.kerning = r.kerning;
     if (r.field) o.field = r.field;
     if (r.object) o.object = r.object;
     return o;
   }
-  const sameStyle = (a, b) => a.font === b.font && a.size === b.size && !!a.bold === !!b.bold && !!a.italic === !!b.italic && !!a.underline === !!b.underline && a.color === b.color && (a.script || 0) === (b.script || 0) && (a.tracking || 0) === (b.tracking || 0) && (a.kerning || 0) === (b.kerning || 0);
+  const sameStyle = (a, b) => a.font === b.font && a.size === b.size && !!a.bold === !!b.bold && !!a.italic === !!b.italic && !!a.underline === !!b.underline && a.color === b.color && (a.script || 0) === (b.script || 0) && !!a.strike === !!b.strike && (a.effect || 0) === (b.effect || 0) && (a.caps || 0) === (b.caps || 0) && (a.tracking || 0) === (b.tracking || 0) && (a.kerning || 0) === (b.kerning || 0);
 
   /** Reads the runs of one paragraph element (or a fragment of one). */
   function readRuns(node, fallback) {
@@ -1247,6 +1250,12 @@
     if (ctrl && 'biu'.includes(key) && key.length === 1) {
       e.preventDefault();
       format({ [{ b: 'bold', i: 'italic', u: 'underline' }[key]]: 'toggle' });
+    } else if (ctrl && (key === 'f' || key === 'h')) {
+      e.preventDefault();
+      showFind(key === 'h');
+    } else if (ctrl && e.shiftKey && (e.key === '>' || e.key === '<')) {
+      e.preventDefault();
+      stepSize(e.key === '>' ? 1 : -1);
     } else if (ctrl && key in ALIGN_KEYS && !e.shiftKey && !e.altKey) {
       e.preventDefault();
       format({ align: ALIGN_KEYS[key] });
@@ -1347,7 +1356,7 @@
     const ranged = textSel && (textSel.a.p !== textSel.b.p || textSel.a.o !== textSel.b.o);
     const toggleState = currentStyle() || {};
     const apply = (r) => {
-      for (const key of runKeys) r[key] = change[key] === 'toggle' ? !toggleState[key] : change[key];
+      for (const key of runKeys) r[key] = change[key] === 'toggle' ? !toggleState[key] : typeof change[key] === 'function' ? change[key](r[key], r) : change[key];
     };
     if (textSel && (ranged || paraFn)) {
       const ps = textSel.owner.paras;
@@ -1369,6 +1378,186 @@
       if (flow) startEdit(resume.page, resume.shape, flow, null, resume.sel);
     }
     syncToolbar();
+  }
+
+  function toggleScript(v) {
+    const st = currentStyle();
+    format({ script: st && st.script === v ? 0 : v });
+  }
+  // the sizes of Publisher's font size list
+  const SIZES = [6, 7, 8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72, 96, 144];
+  function stepSize(dir) {
+    format({
+      size: (v) => {
+        const cur = v || 10;
+        if (dir > 0) return SIZES.find((s) => s > cur + 0.01) || Math.min(999, cur + 12);
+        return [...SIZES].reverse().find((s) => s < cur - 0.01) || Math.max(1, cur - 1);
+      },
+    });
+  }
+
+  // ---- find and replace -----------------------------------------------------------------------
+
+  /** The text of a paragraph as searched: one character per text character; objects and fields
+   * can't match. */
+  const paraText = (para) => para.runs.map((r) => (r.object ? '\uFFFC' : r.field ? '\uFFFC'.repeat(r.text.length) : r.text)).join('');
+
+  /** Every match in the publication, in reading order: { page, shape, oi, owner, p, o, len }. */
+  function findMatches(q, matchCase) {
+    const out = [];
+    if (!q || !doc) return out;
+    const needle = matchCase ? q : q.toLowerCase();
+    doc.pages.forEach((pg, page) => {
+      let oi = 0;
+      for (const shape of pg.shapes) {
+        const own = owners(shape);
+        // master-page items are edited on the master page
+        const skip = !!shape.from_master !== !!masterMode;
+        for (const owner of own) {
+          if (!skip) {
+            owner.paras.forEach((para, p) => {
+              const hay = matchCase ? paraText(para) : paraText(para).toLowerCase();
+              for (let o = hay.indexOf(needle); o >= 0; o = hay.indexOf(needle, o + needle.length)) out.push({ page, shape, oi, owner, p, o, len: needle.length });
+            });
+          }
+          oi++;
+        }
+      }
+    });
+    return out;
+  }
+  const findKey = (m) => [m.page, m.oi, m.p, m.o];
+  const keyLess = (a, b) => { for (let i = 0; i < 4; i++) if (a[i] !== b[i]) return a[i] < b[i]; return false; };
+
+  let findLast = null; // the match shown
+  function clearFindMark() {
+    if (window.CSS && CSS.highlights) CSS.highlights.delete('op-find');
+  }
+  function showFind(replace) {
+    if (!doc) return;
+    // start from the text selected in the publication
+    const s = window.getSelection();
+    const picked = editing && s.rangeCount && editing.flow.contains(s.anchorNode) ? String(s).trim() : '';
+    commitEdit();
+    closeMenus();
+    $('findbar').hidden = false;
+    if (picked && picked.length < 80 && !picked.includes('\n')) { $('findq').value = picked; findLast = null; }
+    const f = replace && $('findq').value ? $('findr') : $('findq');
+    f.focus();
+    f.select();
+  }
+  function hideFind() {
+    if ($('findbar').hidden) return;
+    $('findbar').hidden = true;
+    clearFindMark();
+    findLast = null;
+    view.focus({ preventScroll: true });
+  }
+
+  /** Shows a match: its page, its text box selected, the text marked. */
+  function showMatch(m) {
+    commitEdit();
+    if (current !== m.page) goTo(m.page);
+    const sheet = sheets[m.page];
+    if (sheet) renderSheet(sheet);
+    select(m.page, m.shape);
+    clearFindMark();
+    const flow = findFlow(m.page, m.shape, m.owner);
+    const a = flow && fromOffset(flow, { p: m.p, o: m.o }), b = flow && fromOffset(flow, { p: m.p, o: m.o + m.len });
+    let target = shapeEl(m.page, m.shape);
+    if (a && b && window.Highlight && CSS.highlights) {
+      const r = document.createRange();
+      try {
+        r.setStart(a.node, a.offset);
+        r.setEnd(b.node, b.offset);
+        CSS.highlights.set('op-find', new Highlight(r));
+        target = r;
+      } catch (e) { /* the box is selected instead */ }
+    }
+    // bring it into view (below the find box)
+    if (target) {
+      const box = target.getBoundingClientRect(), v = view.getBoundingClientRect();
+      if (box.top < v.top + 90 || box.bottom > v.bottom - 30) view.scrollTop += box.top - (v.top + Math.min(200, v.height / 3));
+      if (box.left < v.left + 10 || box.right > v.right - 10) view.scrollLeft += box.left - (v.left + v.width / 3);
+    }
+    findLast = m;
+  }
+
+  function findNext(quiet) {
+    const q = $('findq').value;
+    const all = findMatches(q, $('findcase').checked);
+    const msg = $('findmsg');
+    if (!q) { msg.textContent = ''; return null; }
+    if (!all.length) { clearFindMark(); findLast = null; msg.textContent = 'No matches'; return null; }
+    // after the match shown, or from the top of the page in view
+    const from = findLast ? findKey(findLast) : [current, -1, 0, -1];
+    let i = all.findIndex((m) => keyLess(from, findKey(m)));
+    const wrapped = i < 0;
+    if (wrapped) i = 0;
+    showMatch(all[i]);
+    if (!quiet) msg.textContent = `${i + 1} of ${all.length}` + (wrapped && findLast ? ' · from the start' : '');
+    $('findq').focus({ preventScroll: true });
+    return all[i];
+  }
+
+  /** Puts `text` in place of `len` characters at `o`, in the formatting of the first of them. */
+  function replaceRange(para, o, len, text) {
+    const out = [];
+    let pos = 0, put = false;
+    for (const r of para.runs) {
+      const n = r.object ? 1 : r.text.length;
+      const a = Math.max(o, pos), b = Math.min(o + len, pos + n);
+      if (!r.object && !r.field && b > a) {
+        out.push(Object.assign({}, r, { text: r.text.slice(0, a - pos) + (put ? '' : text) + r.text.slice(b - pos) }));
+        put = true;
+      } else out.push(r);
+      pos += n;
+    }
+    const kept = out.filter((r) => r.object || r.field || r.text);
+    para.runs = kept.length ? kept : [Object.assign({}, out[0], { text: '' })];
+  }
+  const stillThere = (m, q, matchCase) => {
+    const para = m.owner.paras[m.p];
+    if (!para || !doc.pages[m.page] || !doc.pages[m.page].shapes.includes(m.shape)) return false;
+    const t = paraText(para).substr(m.o, m.len);
+    return matchCase ? t === q : t.toLowerCase() === q.toLowerCase();
+  };
+
+  function replaceOne() {
+    const q = $('findq').value, matchCase = $('findcase').checked;
+    if (!q) return;
+    if (!findLast || !stillThere(findLast, q, matchCase)) { findLast = null; findNext(); return; }
+    const m = findLast, text = $('findr').value;
+    pushUndo(m.page);
+    replaceRange(m.owner.paras[m.p], m.o, m.len, text);
+    rerender(m.page);
+    // go on after the new text (it may contain the search text itself)
+    findLast = Object.assign({}, m, { o: m.o + text.length - 1, len: 0 });
+    const next = findNext();
+    if (!next) { hideSel(); $('findmsg').textContent = 'Replaced · no more matches'; }
+  }
+
+  function replaceAll() {
+    const q = $('findq').value;
+    const all = findMatches(q, $('findcase').checked);
+    if (!q) return;
+    if (!all.length) { $('findmsg').textContent = 'No matches'; return; }
+    commitEdit();
+    const text = $('findr').value;
+    pushUndo(); // every page in one step
+    // from the end of each paragraph, so earlier positions stay right
+    for (let i = all.length - 1; i >= 0; i--) replaceRange(all[i].owner.paras[all[i].p], all[i].o, all[i].len, text);
+    clearFindMark();
+    findLast = null;
+    sel = null;
+    textSel = null;
+    cellSel = null;
+    hideSel();
+    const pages = new Set(all.map((m) => m.page));
+    for (const pg of pages) redraw(pg);
+    updateButtons();
+    syncToolbar();
+    $('findmsg').textContent = `Replaced ${all.length} ${all.length === 1 ? 'match' : 'matches'}`;
   }
 
   // paragraph commands
@@ -1456,7 +1645,7 @@
       run = para && para.runs.find((r) => !r.object);
     }
     if (!run) return null;
-    return { font: run.font, size: run.size, bold: !!run.bold, italic: !!run.italic, underline: !!run.underline, color: run.color, align: para.align, para };
+    return { font: run.font, size: run.size, bold: !!run.bold, italic: !!run.italic, underline: !!run.underline, strike: !!run.strike, script: run.script || 0, color: run.color, align: para.align, para };
   }
 
   const fmtCm = (v) => String(Math.round((v / CM) * 100) / 100);
@@ -1485,6 +1674,9 @@
     tog('bold', st && st.bold);
     tog('italic', st && st.italic);
     tog('underline', st && st.underline);
+    tog('strike', st && st.strike);
+    tog('super', st && st.script === 1);
+    tog('sub', st && st.script === 2);
     tog('al', st && st.align === 'left');
     tog('ac', st && st.align === 'center');
     tog('ar', st && st.align === 'right');
@@ -1577,7 +1769,7 @@
     const has = !!doc && !busy;
     const s = !!sel && !busy;
     const n = sel ? sel.shapes.length : 0;
-    en(['save', 'addtext', 'addpic', 'addtable', 'addrect', 'addellipse', 'addline', 'addpage', 'inspage', 'duppage', 'selall', 'mastermode', 'paste'], has);
+    en(['save', 'addtext', 'addpic', 'addtable', 'addrect', 'addellipse', 'addline', 'addpage', 'inspage', 'duppage', 'selall', 'mastermode', 'paste', 'findbtn'], has);
     en(['delpage'], has && doc.pages.length > 1);
     en(['pageup'], has && current > 0);
     en(['pagedown'], has && current < doc.pages.length - 1);
@@ -1585,7 +1777,7 @@
     en(['group'], s && n > 1);
     en(['ungroup'], s && sel.shapes.some((x) => x.kind === 'group'));
     const text = s || !!textSel;
-    en(['font', 'size', 'bold', 'italic', 'underline', 'color', 'al', 'ac', 'ar', 'aj', 'bul', 'bulmenu', 'num', 'nummenu', 'indl', 'indr', 'spbtn'], text);
+    en(['font', 'size', 'grow', 'shrink', 'bold', 'italic', 'underline', 'strike', 'super', 'sub', 'color', 'al', 'ac', 'ar', 'aj', 'bul', 'bulmenu', 'num', 'nummenu', 'indl', 'indr', 'spbtn'], text);
     const lv = sel ? leaves(sel.shapes).filter((x) => x.kind !== 'table') : [];
     en(['fill', 'nofill', 'transp'], s && lv.some((x) => x.kind !== 'line'));
     en(['linecolor', 'linewidth', 'dash'], s && lv.length > 0);
@@ -2809,6 +3001,25 @@
   on('bold', () => format({ bold: 'toggle' }));
   on('italic', () => format({ italic: 'toggle' }));
   on('underline', () => format({ underline: 'toggle' }));
+  on('strike', () => format({ strike: 'toggle' }));
+  on('super', () => toggleScript(1));
+  on('sub', () => toggleScript(2));
+  on('grow', () => stepSize(1));
+  on('shrink', () => stepSize(-1));
+  on('findbtn', () => showFind());
+  on('findnext', () => findNext());
+  on('findclose', hideFind);
+  on('replone', replaceOne);
+  on('replall', replaceAll);
+  $('findq').addEventListener('input', () => { findLast = null; clearFindMark(); $('findmsg').textContent = ''; });
+  $('findbar').addEventListener('keydown', (e) => {
+    e.stopPropagation(); // typing here is not a command for the page
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (e.key === 'Escape') { e.preventDefault(); hideFind(); }
+    else if (e.key === 'Enter' && e.target.id === 'findr') { e.preventDefault(); replaceOne(); }
+    else if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); findNext(); }
+    else if (ctrl && (e.key === 'f' || e.key === 'h')) { e.preventDefault(); showFind(e.key === 'h'); }
+  });
   on('al', () => format({ align: 'left' }));
   on('ac', () => format({ align: 'center' }));
   on('ar', () => format({ align: 'right' }));
@@ -2981,6 +3192,8 @@
     if (e.key === 'Escape' && document.querySelector('.pop:not([hidden])')) { closeMenus(); return; }
     if (ctrl && key === 'o') { e.preventDefault(); send({ cmd: 'open' }); return; }
     if (ctrl && key === 'n') { e.preventDefault(); showFile('new'); return; }
+    if (ctrl && (key === 'f' || key === 'h') && doc && !fileOpen()) { e.preventDefault(); showFind(key === 'h'); return; }
+    if (ctrl && e.shiftKey && (e.key === '>' || e.key === '<') && doc && !fileOpen()) { e.preventDefault(); stepSize(e.key === '>' ? 1 : -1); return; }
     if (fileOpen()) {
       // the File screen is in front: only its own keys work
       if (e.key === 'Escape' && doc) { e.preventDefault(); hideFile(); }
@@ -3088,6 +3301,7 @@
       setMargin, setVAlign, setColumns, setColumnGap,
       setBullet, setNumbering, clearList, toggleBullets, toggleNumbering, indent, setSpacing, setParaSpace,
       selectCells, insertRows, insertCols, deleteRows, deleteCols, mergeCells, splitCells, setCellFill, setCellVAlign, setBorders, setPen, clearCells,
+      findMatches, findNext, replaceOne, replaceAll, showFind, hideFind, stepSize, toggleScript, replaceRange,
       replacePicture, setCropMode, cropTo, setCropSide, copySel, pasteClip, handlePaste, setMasterMode, showTab, syncToolbar,
       quiet: (v) => { quiet = !!v; }, toLocal, gridHit, rowEdges,
     },

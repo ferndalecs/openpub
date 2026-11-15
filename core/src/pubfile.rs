@@ -545,6 +545,11 @@ struct RunProps {
     color: Option<u32>,
     font: Option<u32>,
     script: Option<u8>,
+    strike: Option<bool>,
+    /// 1 outline, 2 emboss, 3 engrave
+    effect: Option<u8>,
+    small_caps: Option<bool>,
+    all_caps: Option<bool>,
     /// tracking in thousandths (875 = 87.5%)
     tracking: Option<u32>,
     /// extra character spacing in EMU
@@ -575,8 +580,15 @@ struct ParaProps {
 
 fn run_props(bs: &[Block]) -> RunProps {
     let mut r = RunProps::default();
+    // Text effects (measured with tools/makeprobe6.ps1): an outline record (0x59) with the fill
+    // switched off (0x58) is "outline"; with a shadow record (0x5c) it is emboss (shadow style
+    // 0x8ca) or engrave.
+    let (mut no_fill, mut outline, mut shadow) = (false, false, None);
     for b in bs {
         match (b.id, &b.val) {
+            (0x58, BVal::List(_)) => no_fill = true,
+            (0x59, BVal::List(_)) => outline = true,
+            (0x5c, BVal::List(l)) => shadow = Some(int(l, 4).unwrap_or(0)),
             // 0x37 and 0x38 are bold and italic for complex scripts only
             (0x02, BVal::None) => r.bold = Some(true),
             (0x03, BVal::None) => r.italic = Some(true),
@@ -585,6 +597,12 @@ fn run_props(bs: &[Block]) -> RunProps {
             (0x0c, BVal::Int(v)) => r.size = Some((*v as f64 / EMU_PER_PT) as f32),
             (0x44, BVal::List(l)) => r.color = int(l, 0),
             (0x0f, BVal::Int(v)) => r.script = Some(*v as u8),
+            (0x10, BVal::None) => r.strike = Some(true),
+            (0x10, BVal::Int(v)) => r.strike = Some(*v != 0),
+            (0x13, BVal::None) => r.small_caps = Some(true),
+            (0x13, BVal::Int(v)) => r.small_caps = Some(*v != 0),
+            (0x14, BVal::None) => r.all_caps = Some(true),
+            (0x14, BVal::Int(v)) => r.all_caps = Some(*v != 0),
             (0x1f, BVal::Int(v)) => r.tracking = Some(*v),
             (0x1b, BVal::Int(v)) => r.kerning = Some(*v as i32),
             (0x00, BVal::Int(v)) => r.field = Some(*v),
@@ -596,6 +614,14 @@ fn run_props(bs: &[Block]) -> RunProps {
             }
             _ => {}
         }
+    }
+    if outline {
+        r.effect = Some(match shadow {
+            _ if no_fill => 1,
+            Some(0x8ca) => 2,
+            Some(_) => 3,
+            None => 1,
+        });
     }
     r
 }
@@ -662,6 +688,10 @@ impl RunProps {
             color: self.color.or(base.color),
             font: self.font.or(base.font),
             script: self.script.or(base.script),
+            strike: self.strike.or(base.strike),
+            effect: self.effect.or(base.effect),
+            small_caps: self.small_caps.or(base.small_caps),
+            all_caps: self.all_caps.or(base.all_caps),
             tracking: self.tracking.or(base.tracking),
             kerning: self.kerning.or(base.kerning),
             field: self.field,

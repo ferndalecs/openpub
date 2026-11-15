@@ -72,6 +72,29 @@ kbd { font: inherit; color: var(--muted); }
 #bar .tabs [role=tab].ctx:not([aria-selected=true]) { background: var(--ctx-soft); }
 #bar .tabs [role=tab].ctx:first-of-type, #t-shape { margin-left: 14px; }
 #bar .tabs [role=tab][hidden] { display: none; }
+/* ---- find and replace ------------------------------------------------------------------------ */
+#findbar { position: fixed; right: 26px; top: 136px; z-index: 30; width: 400px; background: #fff; border: 1px solid var(--bar-line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.28); padding: 10px 10px 8px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+#findbar[hidden] { display: none; }
+#findbar .fr { display: flex; align-items: center; gap: 6px; }
+#findbar label[for] { width: 52px; color: var(--muted); flex: none; }
+#findbar input[type=text] { flex: 1; min-width: 0; font: inherit; height: 28px; border: 1px solid var(--bar-line); border-radius: 5px; padding: 0 8px; user-select: text; }
+#findbar button { font: inherit; color: inherit; height: 28px; border: 1px solid var(--bar-line); border-radius: 5px; background: #fff; padding: 0 10px; cursor: pointer; white-space: nowrap; }
+#findbar button:hover { background: var(--hover); }
+#findbar button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+#findbar #findclose { border-color: transparent; padding: 0 8px; font-size: 16px; color: var(--muted); }
+#findbar #replone { width: 82px; }
+#findbar #replall { width: 30px; padding: 0; margin-right: 34px; }
+#findbar .chk { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+#findbar input:focus-visible, #findbar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+#findmsg { margin-left: auto; color: var(--muted); font-size: 12px; }
+::highlight(op-find) { background: #ffd84d; color: #000; }
+#bar .ribbon #grow, #bar .ribbon #shrink { padding: 0 4px; display: inline-flex; align-items: baseline; gap: 1px; }
+#grow .fa { font-size: 15px; } #shrink .fa { font-size: 12px; }
+#grow .fs, #shrink .fs { font-size: 7px; color: var(--accent); position: relative; top: -5px; }
+#strike s { text-decoration-thickness: 1px; }
+#super, #sub { font-size: 12px; }
+#super sup, #sub sub { font-size: 9px; color: var(--accent); }
+
 /* ---- status bar: pages, selection, zoom -------------------------------------------------------- */
 #status { flex: none; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; background: var(--bar); border-top: 1px solid var(--bar-line); font-size: 12px; position: relative; z-index: 20; }
 body:not(.has-doc) #status { visibility: hidden; }
@@ -251,7 +274,7 @@ body.drag #file::after { content: "Drop to open"; position: absolute; inset: 12p
 @media print {
   html, body { height: auto; }
   body { display: block; overflow: visible; background: #fff; }
-  #bar, #thumbs, #notes, #file, #status, #masterbar, .selbox, .band { display: none !important; }
+  #bar, #thumbs, #notes, #file, #status, #findbar, #masterbar, .selbox, .band { display: none !important; }
   main, #view { display: block; overflow: visible; }
   #pages { display: block; padding: 0; }
   .row { display: block; }

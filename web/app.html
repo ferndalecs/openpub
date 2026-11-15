@@ -61,6 +61,7 @@
     <symbol id="i-bin" viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="13" height="13" stroke-dasharray="1.4 1.4" opacity=".5"/><path d="M8 1.5v13M1.5 8h13"/></symbol>
     <symbol id="i-bnone" viewBox="0 0 16 16"><g stroke-dasharray="1.4 1.4" opacity=".5"><rect x="1.5" y="1.5" width="13" height="13"/><path d="M8 1.5v13M1.5 8h13"/></g></symbol>
     <symbol id="i-swap" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="9" height="8" rx="1"/><path d="M13.5 6v7.5H6M11.8 11.7l1.7 1.8 1.6-1.8"/></symbol>
+    <symbol id="i-find" viewBox="0 0 16 16"><circle cx="6.8" cy="6.8" r="4.3"/><path d="M10 10l4 4"/></symbol>
     <symbol id="i-save" viewBox="0 0 16 16"><path d="M2.5 2.5h8.6l2.4 2.4v8.6h-11z"/><path d="M5 2.5v3.6h5.2V2.5M4.6 13.5V9.2h6.8v4.3"/></symbol>
   </defs>
 </svg>
@@ -102,11 +103,16 @@
             <input id="font" list="fontlist" title="Font" aria-label="Font" placeholder="Font" spellcheck="false">
             <datalist id="fontlist"></datalist>
             <input id="size" type="number" min="1" max="999" step="0.5" title="Font size (points)" aria-label="Font size">
+            <button id="grow" title="Larger text (Ctrl+Shift+>)" aria-label="Larger text"><span class="fa">A</span><span class="fs">▲</span></button>
+            <button id="shrink" title="Smaller text (Ctrl+Shift+<)" aria-label="Smaller text"><span class="fa small">A</span><span class="fs">▼</span></button>
           </div>
           <div class="r">
             <button id="bold" class="tog" title="Bold (Ctrl+B)" aria-label="Bold"><b>B</b></button>
             <button id="italic" class="tog" title="Italic (Ctrl+I)" aria-label="Italic"><i>I</i></button>
             <button id="underline" class="tog" title="Underline (Ctrl+U)" aria-label="Underline"><u>U</u></button>
+            <button id="strike" class="tog" title="Strikethrough" aria-label="Strikethrough"><s>ab</s></button>
+            <button id="super" class="tog" title="Superscript" aria-label="Superscript">x<sup>2</sup></button>
+            <button id="sub" class="tog" title="Subscript" aria-label="Subscript">x<sub>2</sub></button>
             <label class="swatch" title="Text colour">A<input id="color" type="color" value="#000000" aria-label="Text colour"></label>
           </div>
         </div>
@@ -188,6 +194,7 @@
           </div>
           <div class="r">
             <button id="del" class="ib" title="Delete (Del)"><svg class="i"><use href="#i-del"/></svg>Delete</button>
+            <button id="findbtn" class="ib" title="Find and replace text (Ctrl+F, Ctrl+H)"><svg class="i"><use href="#i-find"/></svg>Find &amp; Replace</button>
           </div>
         </div>
         <div class="gl">Editing</div>
@@ -472,6 +479,11 @@
     <div id="pages"></div>
   </section>
 </main>
+<div id="findbar" role="dialog" aria-label="Find and replace" hidden>
+  <div class="fr"><label for="findq">Find</label><input id="findq" type="text" spellcheck="false" autocomplete="off"><button id="findnext" class="primary" title="Find the next match (Enter)">Find Next</button><button id="findclose" title="Close (Esc)" aria-label="Close">×</button></div>
+  <div class="fr"><label for="findr">Replace</label><input id="findr" type="text" spellcheck="false" autocomplete="off"><button id="replone" title="Replace this match and find the next">Replace</button><button id="replall" title="Replace every match in the publication">All</button></div>
+  <div class="fr"><label class="chk"><input id="findcase" type="checkbox"> Match case</label><span id="findmsg" role="status"></span></div>
+</div>
 <footer id="status">
   <button id="prev" title="Previous page (Page Up)" aria-label="Previous page">‹</button>
   <span id="pagebox">Page <input id="pageno" type="text" inputmode="numeric" aria-label="Page number" value="–"> <span id="pagecount">of –</span></span>

@@ -121,7 +121,19 @@
     s.fontSize = pt(run.size);
     if (run.bold) s.fontWeight = 'bold';
     if (run.italic) s.fontStyle = 'italic';
-    if (run.underline) s.textDecoration = 'underline';
+    if (run.underline || run.strike) s.textDecoration = (run.underline ? 'underline' : '') + (run.strike ? ' line-through' : '');
+    // text effects as Publisher draws them: hollow letters; or slightly heavier letters with a
+    // soft edge (emboss to the lower right, engrave to the upper left)
+    if (run.effect === 1) {
+      s.webkitTextStroke = `${pt(run.size * 0.045)} ${run.color || '#000000'}`;
+      s.webkitTextFillColor = 'transparent';
+    } else if (run.effect === 2 || run.effect === 3) {
+      const d = pt(run.size * 0.03 * (run.effect === 2 ? 1 : -1));
+      s.webkitTextStroke = `${pt(run.size * 0.02)} ${run.color || '#000000'}`;
+      s.textShadow = `${d} ${d} ${pt(run.size * 0.03)} rgba(0,0,0,.4)`;
+    }
+    if (run.caps === 1) s.fontVariantCaps = 'small-caps';
+    if (run.caps === 2) s.textTransform = 'uppercase';
     s.color = run.color;
     const em = lineEm(run.font, run.bold, run.italic);
     const lh = para.spacing_exact ? para.spacing : para.spacing * em * run.size;
@@ -183,7 +195,7 @@
 
   // Editing support: formatting is kept on the elements so edited text can be read back.
   function runKey(run) {
-    return JSON.stringify({ font: run.font, size: run.size, bold: !!run.bold, italic: !!run.italic, underline: !!run.underline, color: run.color, script: run.script || 0, tracking: run.tracking || 0, kerning: run.kerning || 0 });
+    return JSON.stringify({ font: run.font, size: run.size, bold: !!run.bold, italic: !!run.italic, underline: !!run.underline, color: run.color, script: run.script || 0, strike: !!run.strike, effect: run.effect || 0, caps: run.caps || 0, tracking: run.tracking || 0, kerning: run.kerning || 0 });
   }
   function paraKey(p) {
     const o = Object.assign({}, p);
@@ -447,9 +459,6 @@
           const s = g[1] - g[0] + 0.25 * keep;
           if (s > score) { score = s; gap = g; }
         }
-        // (Publisher fills the gaps in reading order: a gap to the left nearly as wide wins)
-        const lead = xs.find((g) => g[1] - g[0] >= 0.8 * (gap[1] - gap[0]));
-        if (lead) gap = lead;
       }
       const last = slabs[slabs.length - 1];
       if (last && Math.abs(last.b - a) < 0.01 && Math.abs(last.L - gap[0]) < 0.01 && Math.abs(last.R - gap[1]) < 0.01) last.b = b;

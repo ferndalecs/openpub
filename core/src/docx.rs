@@ -1616,6 +1616,20 @@ fn rpr(r: &Run, hide: bool) -> String {
     if r.underline {
         o.push_str("<w:u w:val=\"single\"/>");
     }
+    if r.strike {
+        o.push_str("<w:strike/>");
+    }
+    match r.effect {
+        1 => o.push_str("<w:outline/>"),
+        2 => o.push_str("<w:emboss/>"),
+        3 => o.push_str("<w:imprint/>"),
+        _ => {}
+    }
+    match r.caps {
+        1 => o.push_str("<w:smallCaps/>"),
+        2 => o.push_str("<w:caps/>"),
+        _ => {}
+    }
     // character spacing: Word has a fixed amount per character (twentieths of a point); tracking
     // scales each character's width, about half the font size on average
     let extra = r.kerning + if r.tracking > 0.0 { (r.tracking - 1.0) * 0.5 * r.size } else { 0.0 };

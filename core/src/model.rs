@@ -321,6 +321,14 @@ pub struct Run {
     /// 1 superscript, 2 subscript
     #[serde(skip_serializing_if = "is_zero_u8")]
     pub script: u8,
+    #[serde(skip_serializing_if = "is_false")]
+    pub strike: bool,
+    /// Text effect: 1 outline (hollow letters), 2 emboss, 3 engrave
+    #[serde(skip_serializing_if = "is_zero_u8")]
+    pub effect: u8,
+    /// 1 small capitals, 2 all capitals
+    #[serde(skip_serializing_if = "is_zero_u8")]
+    pub caps: u8,
     /// Character spacing as a factor of each character's width (Publisher's "tracking":
     /// 0.875 = tight, 1.25 = very loose); 0 = normal.
     #[serde(skip_serializing_if = "is_zero")]
