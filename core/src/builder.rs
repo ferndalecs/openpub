@@ -575,8 +575,10 @@ impl<'a> Conv<'a> {
                 _ => "top",
             }
             .into(),
-            columns: 1,
-            column_gap: 0.0,
+            // columns and the gap between them (drawing properties 0x8c and 0x8d; measured with
+            // tools/makeprobe7.ps1)
+            columns: s.props.get(&0x8c).copied().filter(|n| (2..=63).contains(n)).unwrap_or(1) as _,
+            column_gap: s.props.get(&0x8d).map(|v| emu(*v)).filter(|g| (0.0..=720.0).contains(g)).unwrap_or(COLUMN_GAP),
             rotate: match s.props.get(&0x88).copied().unwrap_or(0) {
                 1 | 3 | 5 => 90.0,
                 2 => 270.0,
@@ -799,6 +801,8 @@ impl<'a> Conv<'a> {
 /// The renderer does the same at draw time; this copy is for exporters.
 /// Shapes created in OpenPub get sequence numbers from here up.
 pub const NEW_SHAPE_SEQ: u32 = 1_000_000;
+/// Gap between text columns when a frame does not say (0.2 cm).
+const COLUMN_GAP: f64 = 72000.0 / EMU_PER_PT;
 
 pub fn compute_wraps(doc: &mut Document) {
     fn bounds(s: &Shape) -> [f64; 4] {

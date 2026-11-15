@@ -118,6 +118,8 @@ OpenPub opens files other people made, so it treats them as untrusted:
 * WebView2 keeps its working files in `%LOCALAPPDATA%\OpenPub\WebView2`, the recent-files list
   and settings in `%LOCALAPPDATA%\OpenPub`. The program writes nowhere else unless asked to
   save or export.
+* `python tools/fuzz.py` damages copies of sample files in thousands of ways and checks the
+  reader never crashes or hangs on them.
 * `cargo audit` checks the Rust dependencies against the RustSec advisory database;
   `tools/sectest.js` checks the page's restrictions against a hostile file made by
   `tools/make-hostile-opub.py`.
@@ -159,8 +161,8 @@ feature samples to Word, opens each in Word and compares them with Publisher's p
 * Rendering:
   * Text flows on both sides of a shape in the middle of a frame, as in Publisher, except in
     centred or right-aligned text, frames with columns and frames holding an inline table or
-    picture, where it keeps to the wider side. Line breaks beside a shape can differ a little.
-  * A text frame Publisher lays out in columns can come out as one column.
+    picture, where it keeps to the wider side. Text columns in a frame are drawn, with text
+    wrapping round shapes inside each column. Line breaks beside a shape can differ a little.
   * WordArt: plain, arched and wavy styles are drawn; 3-D/extruded styles, vertical (stacked)
     text, multi-stop and preset gradients and textures come out flat or approximated.
   * BorderArt (picture borders) isn't drawn; gradients have two colours.

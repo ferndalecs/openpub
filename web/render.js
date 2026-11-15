@@ -424,11 +424,48 @@
     // right-aligned lines would need centring in each gap) and the frame has one column.
     // (a table or picture in the text can't be split around a shape: such frames keep to one gap)
     const twoSided = !(body.columns > 1) && body.paras.every((p) => (p.align === 'left' || p.align === 'justify' || !p.align) && !p.runs.some((r) => r.object));
-    flow.opWrap = { rects, cw, twoSided };
+    const cols = columnsOf(body, frame);
+    // An unbroken run longer than a line (rows of underscores to write on) is broken wherever a
+    // line ends. Publisher doesn't squeeze pieces of it into the slivers beside a shape: for
+    // such text a gap must be wide enough to be worth a line.
+    const lineW = cols ? cols.w : cw;
+    const longRun = body.paras.some((p) => p.runs.some((r) => !r.object && r.text.split(/\s+/).some((w) => w.length * r.size * 0.45 > lineW)));
+    const minGap = longRun ? Math.min(72, lineW / 3) : 0;
+    if (cols) {
+      // In a frame with columns the browser lays the flow out as one tall strip cut into
+      // columns: put each column's part of the shapes at that column's place in the strip.
+      const strip = [];
+      for (let c = 0; c < cols.n; c++) {
+        const left = c * (cols.w + cols.gap);
+        for (const r of rects) {
+          const x0 = Math.max(0, r.x0 - left), x1 = Math.min(cols.w, r.x1 - left);
+          const y0 = Math.max(0, r.y0), y1 = Math.min(cols.h, r.y1);
+          if (x1 - x0 > 0.5 && y1 - y0 > 0.5) strip.push({ x0, x1, y0: y0 + c * cols.h, y1: y1 + c * cols.h });
+        }
+      }
+      if (!strip.length) return;
+      flow.opWrap = { rects: strip, cw: cols.w, twoSided: false, cols: cols.n, minGap };
+      buildFloats(flow);
+      return;
+    }
+    flow.opWrap = { rects, cw, twoSided, minGap };
     buildFloats(flow);
   }
 
   const MIN_GAP = 12;
+
+  /** The columns of a text body in its frame: how many, how wide, the gap and the height (points),
+   * or null for a single column. */
+  function columnsOf(body, frame) {
+    const n = Math.min(63, Math.floor(body.columns || 1));
+    if (!(n > 1) || !frame) return null;
+    const m = body.margins;
+    const w = frame.w - m[0] - m[2], h = frame.h - m[1] - m[3];
+    const gap = Math.max(0, Math.min(body.column_gap || 0, w / n));
+    const cw = (w - (n - 1) * gap) / n;
+    if (!(cw > 4 && h > 4)) return null;
+    return { n, w: cw, gap, h };
+  }
 
   /**
    * Text on both sides of a shape. CSS floats only push text in from the frame's edges, so where a
@@ -635,7 +672,8 @@
       let gap = [0, cw];
       // gaps wide enough for a word: with two or more, the text uses all of them (the floats keep
       // it between the first and the last; fillHoles makes each line skip the shapes in between)
-      const usable = xs && flow.opWrap.twoSided ? xs.filter((g) => g[1] - g[0] >= MIN_GAP) : null;
+      const narrow = Math.max(MIN_GAP, flow.opWrap.minGap || 0);
+      const usable = xs && flow.opWrap.twoSided ? xs.filter((g) => g[1] - g[0] >= narrow) : null;
       if (usable && usable.length >= 2) {
         gap = [usable[0][0], usable[usable.length - 1][1]];
         for (let n = 0; n + 1 < usable.length; n++) {
@@ -654,6 +692,7 @@
         let score = -Infinity;
         gap = [cw, cw];
         for (const g of xs) {
+          if (g[1] - g[0] < (flow.opWrap.minGap || 0)) continue; // (too narrow for this text)
           const keep = prev ? Math.max(0, Math.min(g[1], prev[1]) - Math.max(g[0], prev[0])) : 0;
           const s = g[1] - g[0] + 0.25 * keep;
           if (s > score) { score = s; gap = g; }
@@ -686,7 +725,11 @@
   /** The lines of a laid-out flow: { top, h } in points from the top of the flow, and whether
    * the line starts a paragraph (with the paragraph's own top). */
   function flowLines(flow, k) {
-    const ft = flow.getBoundingClientRect().top;
+    const fb = flow.getBoundingClientRect();
+    const ft = fb.top;
+    // in a frame with columns, a line in column c is c column-heights further down the strip
+    const cols = flow.opCols;
+    const down = (r) => (cols ? Math.max(0, Math.floor(((r.left - fb.left) / k + 0.5) / (cols.w + cols.gap))) * cols.h : 0);
     const out = [];
     for (const para of flow.children) {
       if (!para.classList.contains('op-para')) continue;
@@ -696,7 +739,7 @@
         if (!l) continue;
         for (const r of span.getClientRects()) {
           if (!r.height) continue;
-          const base = (r.top - ft) / k + l.base;
+          const base = (r.top - ft) / k + l.base + down(r);
           let line = lines.find((x) => Math.abs(x.base - base) < 0.6);
           if (!line) lines.push((line = { base, above: 0, below: 0 }));
           line.above = Math.max(line.above, l.top);
@@ -708,7 +751,8 @@
       lines.forEach((l, i) => out.push({
         top: l.base - l.above,
         h: l.above + l.below,
-        paraTop: i === 0 ? (para.getBoundingClientRect().top - ft) / k : null,
+        // (a paragraph cut across columns has no single top: only the frame's first line is known)
+        paraTop: i !== 0 ? null : !cols ? (para.getBoundingClientRect().top - ft) / k : para === flow.querySelector('.op-para') ? 0 : NaN,
         // how far the next line starts below this one's top: its height and, for a paragraph's
         // last line, the space after the paragraph
         advance: l.above + l.below + (i === lines.length - 1 ? after : 0),
@@ -735,7 +779,7 @@
         for (let i = 0; i < lines.length; i++) {
           const L = lines[i];
           const expect = L.paraTop != null ? L.paraTop : i > 0 ? lines[i - 1].top + lines[i - 1].h : null;
-          if (expect == null || L.top - expect < 0.5 || L.h < 1) continue;
+          if (expect == null || !(L.top - expect >= 0.5) || L.h < 1) continue;
           const steps = Math.ceil((L.top - expect) / L.advance - 0.02);
           const extra = expect + steps * L.advance - L.top;
           if (extra < 0.3) continue;
@@ -808,11 +852,23 @@
         if (extra > 0) { flow.style.marginBottom = pt(-extra); flow.opExtra = extra; }
       }
     }
+    // columns: the text runs down one and carries on at the top of the next (what doesn't fit
+    // the last one is hidden, as text that doesn't fit a frame is)
+    const cols = columnsOf(body, frame);
+    if (cols) {
+      flow.style.columnCount = cols.n;
+      flow.style.columnGap = pt(cols.gap);
+      flow.style.columnFill = 'auto';
+      flow.style.height = pt(cols.h);
+      flow.style.marginBottom = '';
+      flow.opCols = cols; // { n, w, gap, h }
+      box.style.justifyContent = 'flex-start';
+    }
     const wraps = frame && ctx.wraps ? ctx.wraps.get(frame) : null;
     if (wraps && wraps.length) addWrap(flow, Object.assign({}, body, { wrap: wraps }), frame);
     if (flow.opWrap && ctx.wrapFlows) {
       ctx.wrapFlows.push(flow);
-      if (body.valign === 'middle' || body.valign === 'bottom') {
+      if (!cols && (body.valign === 'middle' || body.valign === 'bottom')) {
         flow.opValign = body.valign;
         box.style.justifyContent = 'flex-start';
       }
