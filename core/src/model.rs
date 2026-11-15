@@ -46,6 +46,9 @@ pub struct Page {
     pub name: String,
     pub number: u32,
     pub shapes: Vec<Shape>,
+    /// Colour behind everything on the page (set in OpenPub).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]

@@ -55,12 +55,15 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
     line and paragraph spacing; text-box margins, vertical alignment and columns.
   * Find & Replace (Ctrl+F / Ctrl+H) across the whole publication, with Match case, Replace and
     Replace All (one undo step).
-  * Shapes and pictures: fill colour and transparency, outline colour/width/dash; replace a
-    picture, crop it with handles or by percentages.
+  * Shapes and pictures: a gallery of about 60 shapes (basic shapes, block arrows, flowchart,
+    stars and banners, callouts); fill colour and transparency, outline colour/width/dash; align
+    objects with each other or the page, flip; replace a picture, crop it with handles or by
+    percentages.
   * Tables: insert; add/delete rows and columns, merge/split cells, cell fill, vertical
     alignment and borders.
-  * Pages: add, duplicate, delete, reorder (buttons or drag in the page list); edit the master
-    page items (headers, footers, page numbers).
+  * Pages: add, duplicate, delete, reorder (buttons or drag in the page list); page size (A4,
+    A5, A3, Letter, Legal, Tabloid or custom) and orientation; page background colour; page
+    border; edit the master page items (headers, footers, page numbers).
   * Undo/redo with Ctrl+Z / Ctrl+Y.
 * **Save** to OpenPub's own format, `.opub` (a zip with `document.json` and the pictures).
   OpenPub does not write `.pub` files: the original is never modified.
@@ -116,7 +119,8 @@ samples and their slugs.
 The editor has automated checks that run inside a debug build:
 `target/debug/openpub.exe samples/year7-booklet.pub --eval=tools/edittest.js` (and
 `tools/apptest.js`, `tools/filetest.js` for the File screen and status bar, `tools/findtest.js` for Find &
-Replace and the text buttons); results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the
+Replace and the text buttons, `tools/pagetest.js` for the shapes gallery, align/flip and page
+setup); results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the
 feature samples to Word, opens each in Word and compares them with Publisher's pages.
 
 ## Known gaps

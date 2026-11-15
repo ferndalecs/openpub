@@ -1439,6 +1439,11 @@
     ctx.wraps = computeWraps(page);
     flushViews();
     ctx.chains = chainViews(doc, index, ctx);
+    if (page.background) {
+      const bg = el('div', 'op-pagebg');
+      bg.style.cssText = `position:absolute;left:0;top:0;width:100%;height:100%;background:${page.background};-webkit-print-color-adjust:exact;print-color-adjust:exact`;
+      pg.appendChild(bg);
+    }
     for (const s of page.shapes) renderShape(s, ctx, pg);
     // tab stops need real layout: the caller attaches the page, then calls finish()
     pg.lang = 'en-GB';

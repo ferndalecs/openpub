@@ -329,7 +329,7 @@
   }
 
   function snapshot(page) {
-    return page == null ? { all: JSON.stringify(doc.pages) } : { page, json: JSON.stringify(doc.pages[page]) };
+    return page == null ? { all: JSON.stringify(doc.pages), w: doc.width, h: doc.height } : { page, json: JSON.stringify(doc.pages[page]) };
   }
   /** Call before changing a page (or, with no argument, the list of pages). */
   function pushUndo(page) {
@@ -356,6 +356,7 @@
     masterBase = null;
     if (e.all) {
       doc.pages = JSON.parse(e.all);
+      if (e.w && e.h) { doc.width = e.w; doc.height = e.h; }
       renumberLabels();
       buildThumbs();
       relayout(true);
@@ -1396,6 +1397,130 @@
     });
   }
 
+  // ---- shapes gallery, align and flip, page setup ----------------------------------------------
+
+  // Office shape types (the numbers of the drawing format), by family
+  const GALLERY = [
+    ['Lines', [[20, 'Line']]],
+    ['Basic shapes', [[1, 'Rectangle'], [2, 'Rounded rectangle'], [3, 'Ellipse'], [5, 'Triangle'], [6, 'Right-angled triangle'], [4, 'Diamond'], [7, 'Parallelogram'], [8, 'Trapezoid'], [56, 'Pentagon'], [9, 'Hexagon'], [10, 'Octagon'], [11, 'Cross'], [16, 'Cube'], [22, 'Cylinder'], [84, 'Bevel'], [23, 'Ring'], [65, 'Folded corner'], [96, 'Smiley face'], [74, 'Heart'], [73, 'Lightning bolt'], [183, 'Sun'], [184, 'Moon'], [185, 'Square brackets'], [186, 'Curly brackets']]],
+    ['Block arrows', [[13, 'Right arrow'], [66, 'Left arrow'], [68, 'Up arrow'], [67, 'Down arrow'], [69, 'Left-right arrow'], [70, 'Up-down arrow'], [76, 'Four-way arrow'], [91, 'Bent arrow'], [101, 'U-turn arrow'], [15, 'Pentagon arrow'], [55, 'Chevron'], [78, 'Right arrow callout']]],
+    ['Flowchart', [[109, 'Process'], [116, 'Terminator'], [110, 'Decision'], [111, 'Data'], [114, 'Document'], [117, 'Preparation'], [118, 'Manual input'], [119, 'Manual operation'], [120, 'Connector']]],
+    ['Stars and banners', [[187, '4-point star'], [12, '5-point star'], [58, '8-point star'], [59, '16-point star'], [92, '24-point star'], [60, '32-point star'], [71, 'Explosion 1'], [72, 'Explosion 2'], [53, 'Ribbon down'], [54, 'Ribbon up'], [64, 'Wave'], [98, 'Horizontal scroll'], [97, 'Vertical scroll']]],
+    ['Callouts', [[61, 'Rectangular callout'], [62, 'Rounded callout'], [63, 'Oval callout'], [106, 'Cloud callout']]],
+  ];
+  function buildShapeGallery() {
+    const pop = $('shapepop');
+    const NS = 'http://www.w3.org/2000/svg';
+    for (const [title, items] of GALLERY) {
+      const cells = mk('div', 'cells');
+      for (const [type, name] of items) {
+        let geo = null;
+        const probe = { kind: type === 20 ? 'line' : 'shape', shape_type: type, x: 0, y: 0, w: 24, h: type === 20 ? 0 : 20 };
+        try { geo = window.OpenPubGeometry ? window.OpenPubGeometry(probe) : null; } catch (e) { geo = null; }
+        if (type === 20) geo = { paths: [{ d: 'M2 18L22 2', fill: false }] };
+        if (!geo || !geo.paths || !geo.paths.length) continue; // only shapes that can be drawn
+        const b = mk('button');
+        b.title = name;
+        b.setAttribute('aria-label', name);
+        const svg = document.createElementNS(NS, 'svg');
+        svg.setAttribute('viewBox', type === 20 ? '0 0 24 20' : '-1 -1 26 22');
+        for (const p of geo.paths) {
+          const node = document.createElementNS(NS, 'path');
+          node.setAttribute('d', p.d);
+          node.setAttribute('fill', p.fill === false ? 'none' : '#fff');
+          node.setAttribute('stroke', p.stroke === false ? 'none' : '#23211d');
+          node.setAttribute('stroke-width', '1.1');
+          node.setAttribute('stroke-linejoin', 'round');
+          svg.appendChild(node);
+        }
+        b.appendChild(svg);
+        b.addEventListener('click', () => addBasic(type));
+        cells.appendChild(b);
+      }
+      if (!cells.children.length) continue;
+      pop.appendChild(mk('h3', '', title));
+      pop.appendChild(cells);
+    }
+  }
+
+  /** Lines objects up: with each other when several are selected, with the page when one is. */
+  function alignSel(mode) {
+    if (!sel || !doc) return;
+    commitEdit();
+    let x0 = 0, y0 = 0, x1 = doc.width, y1 = doc.height;
+    if (sel.shapes.length > 1) {
+      x0 = Math.min(...sel.shapes.map((s) => s.x)); y0 = Math.min(...sel.shapes.map((s) => s.y));
+      x1 = Math.max(...sel.shapes.map((s) => s.x + s.w)); y1 = Math.max(...sel.shapes.map((s) => s.y + s.h));
+    }
+    pushUndo(sel.page);
+    for (const s of sel.shapes) {
+      let dx = 0, dy = 0;
+      if (mode === 'left') dx = x0 - s.x;
+      else if (mode === 'center') dx = (x0 + x1) / 2 - (s.x + s.w / 2);
+      else if (mode === 'right') dx = x1 - (s.x + s.w);
+      else if (mode === 'top') dy = y0 - s.y;
+      else if (mode === 'middle') dy = (y0 + y1) / 2 - (s.y + s.h / 2);
+      else if (mode === 'bottom') dy = y1 - (s.y + s.h);
+      if (!dx && !dy) continue;
+      shift(s, dx, dy);
+      fixWraps(sel.page, s, dx, dy, false);
+    }
+    rerender(sel.page);
+    syncToolbar();
+  }
+  function flipSel(axis) {
+    const key = axis === 'h' ? 'flip_h' : 'flip_v';
+    editShapes((s) => { if (s[key]) delete s[key]; else s[key] = true; }, true);
+  }
+
+  const PAGE_SIZES = { a4: [210 * 72 / 25.4, 297 * 72 / 25.4], a5: [148 * 72 / 25.4, 210 * 72 / 25.4], a3: [297 * 72 / 25.4, 420 * 72 / 25.4], letter: [612, 792], legal: [612, 1008], tabloid: [792, 1224] };
+  /** Changes the size of every page; objects stay where they are, measured from the top left. */
+  function setPageSize(w, h) {
+    if (!doc || !(w >= 28 && h >= 28) || (Math.abs(w - doc.width) < 0.01 && Math.abs(h - doc.height) < 0.01)) { syncPageUi(); return; }
+    commitEdit();
+    pushUndo(); // the size is part of the whole-publication step
+    doc.width = w;
+    doc.height = h;
+    const page = current;
+    buildThumbs();
+    relayout(false);
+    goTo(page);
+    syncToolbar();
+  }
+  function syncPageUi() {
+    if (!doc) return;
+    const active = document.activeElement;
+    const a = Math.min(doc.width, doc.height), b = Math.max(doc.width, doc.height);
+    let name = 'custom';
+    for (const k in PAGE_SIZES) if (Math.abs(PAGE_SIZES[k][0] - a) < 1 && Math.abs(PAGE_SIZES[k][1] - b) < 1) name = k;
+    if (active !== $('pgsize')) $('pgsize').value = name;
+    if (active !== $('pgw')) $('pgw').value = fmtCm(doc.width);
+    if (active !== $('pgh')) $('pgh').value = fmtCm(doc.height);
+    $('pgport').classList.toggle('on', doc.height >= doc.width);
+    $('pgland').classList.toggle('on', doc.width > doc.height);
+    const bg = doc.pages[current] && doc.pages[current].background;
+    $('pgbg').value = isHex(bg) ? bg : '#ffffff';
+  }
+  function setPageBackground(color, all) {
+    if (!doc) return;
+    commitEdit();
+    const set = (pg) => { if (color) pg.background = color; else delete pg.background; };
+    if (all) {
+      pushUndo();
+      doc.pages.forEach((pg, i) => { set(pg); redraw(i); });
+    } else {
+      pushUndo(current);
+      set(doc.pages[current]);
+      rerender(current);
+    }
+    syncToolbar();
+  }
+  function addPageBorder() {
+    if (!doc) return;
+    const m = Math.min(36, doc.width / 8, doc.height / 8);
+    addShape({ kind: 'shape', shape_type: 1, x: m, y: m, w: doc.width - 2 * m, h: doc.height - 2 * m, line: { color: '#000000', width: 1.5 }, wrap: 'none' }, false);
+  }
+
   // ---- find and replace -----------------------------------------------------------------------
 
   /** The text of a paragraph as searched: one character per text character; objects and fields
@@ -1662,6 +1787,7 @@
 
   function syncToolbar() {
     updateSelGeom();
+    syncPageUi();
     const st = currentStyle();
     const active = document.activeElement;
     const setv = (id, v) => { const e = $(id); if (e && e !== active) e.value = v; };
@@ -1769,7 +1895,7 @@
     const has = !!doc && !busy;
     const s = !!sel && !busy;
     const n = sel ? sel.shapes.length : 0;
-    en(['save', 'addtext', 'addpic', 'addtable', 'addrect', 'addellipse', 'addline', 'addpage', 'inspage', 'duppage', 'selall', 'mastermode', 'paste', 'findbtn'], has);
+    en(['save', 'addtext', 'addpic', 'addtable', 'addrect', 'addellipse', 'addline', 'addpage', 'inspage', 'duppage', 'selall', 'mastermode', 'paste', 'findbtn', 'shapesbtn', 'pgsize', 'pgport', 'pgland', 'pgw', 'pgh', 'pgbg', 'pgbgnone', 'pgbgall', 'pgborder'], has);
     en(['delpage'], has && doc.pages.length > 1);
     en(['pageup'], has && current > 0);
     en(['pagedown'], has && current < doc.pages.length - 1);
@@ -3007,6 +3133,21 @@
   on('grow', () => stepSize(1));
   on('shrink', () => stepSize(-1));
   on('findbtn', () => showFind());
+  // Shape Format: align and flip
+  for (const [id, mode] of [['alnl', 'left'], ['alnc', 'center'], ['alnr', 'right'], ['alnt', 'top'], ['alnm', 'middle'], ['alnb', 'bottom']]) on(id, () => alignSel(mode));
+  on('fliph', () => flipSel('h'));
+  on('flipv', () => flipSel('v'));
+  // Page: setup, background, border
+  onChange('pgsize', (v) => { if (v !== 'custom' && doc) { const [a, b] = PAGE_SIZES[v]; const land = doc.width > doc.height; setPageSize(land ? b : a, land ? a : b); } });
+  on('pgport', () => doc && doc.width > doc.height && setPageSize(doc.height, doc.width));
+  on('pgland', () => doc && doc.height > doc.width && setPageSize(doc.height, doc.width));
+  onChange('pgw', () => { const v = num('pgw'); if (doc && v >= 1 && v <= 500) setPageSize(v * CM, doc.height); else syncPageUi(); });
+  onChange('pgh', () => { const v = num('pgh'); if (doc && v >= 1 && v <= 500) setPageSize(doc.width, v * CM); else syncPageUi(); });
+  $('pgbg').addEventListener('change', (e) => setPageBackground(e.target.value));
+  on('pgbgnone', () => setPageBackground(null));
+  on('pgbgall', () => setPageBackground(doc && doc.pages[current].background || null, true));
+  on('pgborder', addPageBorder);
+  buildShapeGallery();
   on('findnext', () => findNext());
   on('findclose', hideFind);
   on('replone', replaceOne);
@@ -3159,7 +3300,7 @@
   $('pageno').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.target.blur(); view.focus({ preventScroll: true }); } });
 
   // drop-down menus
-  for (const [btn, menu] of [['bulmenu', 'bulpop'], ['nummenu', 'numpop'], ['spbtn', 'sppop'], ['addtable', 'tblpop']]) {
+  for (const [btn, menu] of [['shapesbtn', 'shapepop'], ['bulmenu', 'bulpop'], ['nummenu', 'numpop'], ['spbtn', 'sppop'], ['addtable', 'tblpop']]) {
     $(btn).addEventListener('click', (e) => {
       e.stopPropagation();
       const open = $(menu).hidden;
@@ -3301,6 +3442,7 @@
       setMargin, setVAlign, setColumns, setColumnGap,
       setBullet, setNumbering, clearList, toggleBullets, toggleNumbering, indent, setSpacing, setParaSpace,
       selectCells, insertRows, insertCols, deleteRows, deleteCols, mergeCells, splitCells, setCellFill, setCellVAlign, setBorders, setPen, clearCells,
+      alignSel, flipSel, setPageSize, setPageBackground, addPageBorder,
       findMatches, findNext, replaceOne, replaceAll, showFind, hideFind, stepSize, toggleScript, replaceRange,
       replacePicture, setCropMode, cropTo, setCropSide, copySel, pasteClip, handlePaste, setMasterMode, showTab, syncToolbar,
       quiet: (v) => { quiet = !!v; }, toLocal, gridHit, rowEdges,

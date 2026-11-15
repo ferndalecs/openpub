@@ -911,7 +911,7 @@ pub fn load(path: &std::path::Path) -> Result<Document, String> {
     let masters: HashMap<u32, &PageInfo> = info.pages.iter().filter(|p| p.is_master).map(|p| (p.seq, p)).collect();
     for p in info.pages.iter().filter(|p| !p.is_master && p.visible) {
         let number = doc.pages.len() as u32 + 1;
-        let mut page = Page { name: format!("Page {number}"), number, shapes: Vec::new() };
+        let mut page = Page { name: format!("Page {number}"), number, shapes: Vec::new(), background: None };
         let in_stack_order = |list: &[u32]| {
             let mut v: Vec<u32> = list.to_vec();
             v.sort_by_key(|s| stack.get(s).copied().unwrap_or((usize::MAX, 0)));
@@ -933,7 +933,7 @@ pub fn load(path: &std::path::Path) -> Result<Document, String> {
     }
     if doc.pages.is_empty() {
         doc.notes.push("No pages could be read from this file.".into());
-        doc.pages.push(Page { name: "Page 1".into(), number: 1, shapes: Vec::new() });
+        doc.pages.push(Page { name: "Page 1".into(), number: 1, shapes: Vec::new(), background: None });
     }
     doc.images = cv.images;
     compute_wraps(&mut doc);

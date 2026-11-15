@@ -24,6 +24,22 @@ const NS_MC: &str = "http://schemas.openxmlformats.org/markup-compatibility/2006
 
 /// Writes `doc` as a Word document.
 pub fn export_docx(doc: &Document, path: &std::path::Path) -> Result<(), String> {
+    // a page's background colour becomes a page-sized rectangle behind everything else
+    let with_backgrounds;
+    let doc = if doc.pages.iter().any(|p| p.background.is_some()) {
+        let mut d = doc.clone();
+        let (w, h) = (d.width, d.height);
+        for p in &mut d.pages {
+            if let Some(color) = p.background.take() {
+                let rect = Shape { kind: "shape".into(), shape_type: 1, w, h, fill: Some(Fill { color, opacity: 1.0, ..Default::default() }), wrap: Some("none".into()), ..Default::default() };
+                p.shapes.insert(0, rect);
+            }
+        }
+        with_backgrounds = d;
+        &with_backgrounds
+    } else {
+        doc
+    };
     // The areas each frame's text keeps clear of, worked out afresh: a document edited in the
     // app may carry stale ones. (A copy without the pictures, which aren't needed for this.)
     let mut laid = Document { width: doc.width, height: doc.height, default_tab: doc.default_tab, pages: doc.pages.clone(), fonts: doc.fonts.clone(), images: Vec::new(), notes: Vec::new() };

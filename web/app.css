@@ -72,6 +72,17 @@ kbd { font: inherit; color: var(--muted); }
 #bar .tabs [role=tab].ctx:not([aria-selected=true]) { background: var(--ctx-soft); }
 #bar .tabs [role=tab].ctx:first-of-type, #t-shape { margin-left: 14px; }
 #bar .tabs [role=tab][hidden] { display: none; }
+/* ---- shapes gallery --------------------------------------------------------------------------- */
+#bar .pop.gallery { width: 318px; max-height: 70vh; overflow-y: auto; padding: 8px; display: block; }
+.pop.gallery h3 { font-size: 11.5px; font-weight: 600; color: var(--muted); margin: 6px 2px 4px; text-transform: none; }
+.pop.gallery h3:first-child { margin-top: 0; }
+.pop.gallery .cells { display: grid; grid-template-columns: repeat(8, 34px); gap: 3px; }
+#bar .pop.gallery .cells button { width: 34px; height: 34px; padding: 0; min-width: 0; display: flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 4px; }
+#bar .pop.gallery .cells button:hover { background: var(--accent-soft); border-color: var(--accent); }
+.pop.gallery svg { width: 24px; height: 24px; overflow: visible; }
+#bar .ribbon .unit { color: var(--muted); align-self: center; padding: 0 2px; }
+#pgsize { min-width: 86px; }
+
 /* ---- find and replace ------------------------------------------------------------------------ */
 #findbar { position: fixed; right: 26px; top: 136px; z-index: 30; width: 400px; background: #fff; border: 1px solid var(--bar-line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.28); padding: 10px 10px 8px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 #findbar[hidden] { display: none; }

@@ -61,6 +61,18 @@
     <symbol id="i-bin" viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="13" height="13" stroke-dasharray="1.4 1.4" opacity=".5"/><path d="M8 1.5v13M1.5 8h13"/></symbol>
     <symbol id="i-bnone" viewBox="0 0 16 16"><g stroke-dasharray="1.4 1.4" opacity=".5"><rect x="1.5" y="1.5" width="13" height="13"/><path d="M8 1.5v13M1.5 8h13"/></g></symbol>
     <symbol id="i-swap" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="9" height="8" rx="1"/><path d="M13.5 6v7.5H6M11.8 11.7l1.7 1.8 1.6-1.8"/></symbol>
+    <symbol id="i-shapes" viewBox="0 0 16 16"><rect x="1.5" y="6.5" width="8" height="8"/><circle cx="10.5" cy="5.5" r="4"/></symbol>
+    <symbol id="i-port" viewBox="0 0 16 16"><rect x="4" y="1.5" width="8" height="13"/></symbol>
+    <symbol id="i-land" viewBox="0 0 16 16"><rect x="1.5" y="4" width="13" height="8"/></symbol>
+    <symbol id="i-border" viewBox="0 0 16 16"><rect x="2.5" y="1.5" width="11" height="13"/><rect x="4.5" y="3.5" width="7" height="9" stroke-dasharray="1.5 1.2"/></symbol>
+    <symbol id="i-alnl" viewBox="0 0 16 16"><path d="M2 1.5v13"/><rect x="4" y="3.5" width="9" height="3.5"/><rect x="4" y="9" width="5.5" height="3.5"/></symbol>
+    <symbol id="i-alnc" viewBox="0 0 16 16"><path d="M8 1.5v13" stroke-dasharray="1.6 1.2"/><rect x="3" y="3.5" width="10" height="3.5"/><rect x="5" y="9" width="6" height="3.5"/></symbol>
+    <symbol id="i-alnr" viewBox="0 0 16 16"><path d="M14 1.5v13"/><rect x="3" y="3.5" width="9" height="3.5"/><rect x="6.5" y="9" width="5.5" height="3.5"/></symbol>
+    <symbol id="i-alnt" viewBox="0 0 16 16"><path d="M1.5 2h13"/><rect x="3.5" y="4" width="3.5" height="9"/><rect x="9" y="4" width="3.5" height="5.5"/></symbol>
+    <symbol id="i-alnm" viewBox="0 0 16 16"><path d="M1.5 8h13" stroke-dasharray="1.6 1.2"/><rect x="3.5" y="3" width="3.5" height="10"/><rect x="9" y="5" width="3.5" height="6"/></symbol>
+    <symbol id="i-alnb" viewBox="0 0 16 16"><path d="M1.5 14h13"/><rect x="3.5" y="3" width="3.5" height="9"/><rect x="9" y="6.5" width="3.5" height="5.5"/></symbol>
+    <symbol id="i-fliph" viewBox="0 0 16 16"><path d="M8 1.5v13" stroke-dasharray="1.6 1.2"/><path d="M6 4v8L1.5 12z"/><path d="M10 4v8l4.5 0z" opacity=".55"/></symbol>
+    <symbol id="i-flipv" viewBox="0 0 16 16"><path d="M1.5 8h13" stroke-dasharray="1.6 1.2"/><path d="M4 6h8L12 1.5z"/><path d="M4 10h8l0 4.5z" opacity=".55"/></symbol>
     <symbol id="i-find" viewBox="0 0 16 16"><circle cx="6.8" cy="6.8" r="4.3"/><path d="M10 10l4 4"/></symbol>
     <symbol id="i-save" viewBox="0 0 16 16"><path d="M2.5 2.5h8.6l2.4 2.4v8.6h-11z"/><path d="M5 2.5v3.6h5.2V2.5M4.6 13.5V9.2h6.8v4.3"/></symbol>
   </defs>
@@ -222,6 +234,9 @@
       <div class="grp" role="group" aria-label="Illustrations">
         <div class="gb">
           <button id="addpic" class="big" title="Add a picture from a file"><svg class="i"><use href="#i-pic"/></svg>Picture…</button>
+          <div class="menu"><button id="shapesbtn" class="big" title="Add a shape" aria-haspopup="true" aria-expanded="false" aria-controls="shapepop"><svg class="i"><use href="#i-shapes"/></svg>Shapes ▾</button>
+            <div class="pop gallery" id="shapepop" hidden></div>
+          </div>
           <div class="col">
             <div class="r">
               <button id="addrect" class="ib" title="Add a rectangle"><svg class="i"><use href="#i-rect"/></svg>Rectangle</button>
@@ -251,6 +266,45 @@
           </div>
         </div>
         <div class="gl">Pages</div>
+      </div>
+      <div class="grp" role="group" aria-label="Page setup">
+        <div class="gb col">
+          <div class="r">
+            <select id="pgsize" title="Page size (of every page)" aria-label="Page size">
+              <option value="a4">A4</option>
+              <option value="a5">A5</option>
+              <option value="a3">A3</option>
+              <option value="letter">Letter</option>
+              <option value="legal">Legal</option>
+              <option value="tabloid">Tabloid</option>
+              <option value="custom">Custom</option>
+            </select>
+            <button id="pgport" class="tog ib" title="Portrait: taller than wide"><svg class="i"><use href="#i-port"/></svg>Portrait</button>
+            <button id="pgland" class="tog ib" title="Landscape: wider than tall"><svg class="i"><use href="#i-land"/></svg>Landscape</button>
+          </div>
+          <div class="r">
+            <label class="fld" title="Page width (cm)">W<input id="pgw" type="text" inputmode="decimal" aria-label="Page width in centimetres"></label>
+            <label class="fld" title="Page height (cm)">H<input id="pgh" type="text" inputmode="decimal" aria-label="Page height in centimetres"></label>
+            <span class="unit">cm</span>
+          </div>
+        </div>
+        <div class="gl">Page setup</div>
+      </div>
+      <div class="grp" role="group" aria-label="Page background">
+        <div class="gb col">
+          <div class="r">
+            <label class="swatch" title="Colour behind everything on this page">Colour<input id="pgbg" type="color" value="#ffffff" aria-label="Page background colour"></label>
+            <button id="pgbgnone" title="No background colour on this page">None</button>
+          </div>
+          <div class="r">
+            <button id="pgbgall" title="Give every page this page's background">Apply to all pages</button>
+          </div>
+        </div>
+        <div class="gl">Background</div>
+      </div>
+      <div class="grp" role="group" aria-label="Page border">
+        <div class="gb"><button id="pgborder" class="big" title="Add a line around this page, inside its edge (an ordinary rectangle you can restyle or delete)"><svg class="i"><use href="#i-border"/></svg>Page border</button></div>
+        <div class="gl">Border</div>
       </div>
       <div class="grp" role="group" aria-label="Order">
         <div class="gb col">
@@ -320,6 +374,23 @@
           </div>
         </div>
         <div class="gl">Size &amp; position (cm)</div>
+      </div>
+      <div class="grp" role="group" aria-label="Align and flip">
+        <div class="gb col">
+          <div class="r">
+            <button id="alnl" title="Align left edges (one object: to the page)" aria-label="Align left"><svg class="i"><use href="#i-alnl"/></svg></button>
+            <button id="alnc" title="Centre horizontally (one object: on the page)" aria-label="Centre horizontally"><svg class="i"><use href="#i-alnc"/></svg></button>
+            <button id="alnr" title="Align right edges (one object: to the page)" aria-label="Align right"><svg class="i"><use href="#i-alnr"/></svg></button>
+            <button id="fliph" class="ib" title="Flip left to right"><svg class="i"><use href="#i-fliph"/></svg>Flip</button>
+          </div>
+          <div class="r">
+            <button id="alnt" title="Align top edges (one object: to the page)" aria-label="Align top"><svg class="i"><use href="#i-alnt"/></svg></button>
+            <button id="alnm" title="Centre vertically (one object: on the page)" aria-label="Centre vertically"><svg class="i"><use href="#i-alnm"/></svg></button>
+            <button id="alnb" title="Align bottom edges (one object: to the page)" aria-label="Align bottom"><svg class="i"><use href="#i-alnb"/></svg></button>
+            <button id="flipv" class="ib" title="Flip top to bottom"><svg class="i"><use href="#i-flipv"/></svg>Flip</button>
+          </div>
+        </div>
+        <div class="gl">Align and flip</div>
       </div>
       <div class="grp" role="group" aria-label="Rotate">
         <div class="gb col">
