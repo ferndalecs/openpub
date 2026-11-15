@@ -47,6 +47,23 @@
 
   const spreadOn = () => $('spread').checked;
 
+  /** The rows of the two-page view, as [left, right] page indexes (-1 = no page there). Like a
+   * printed booklet (and Publisher's two-page view): page 1 on its own on the right, then
+   * even | odd pairs. A two-page publication (a sheet's front and back) shows as one pair. */
+  function spreadRows(n) {
+    if (n <= 2) return [[0, n > 1 ? 1 : -1]];
+    const rows = [[-1, 0]];
+    for (let i = 1; i < n; i += 2) rows.push([i, i + 1 < n ? i + 1 : -1]);
+    return rows;
+  }
+  /** The first page of the spread before / after the one showing page `i`. */
+  function spreadStep(i, dir) {
+    const rows = spreadRows(doc.pages.length);
+    const r = rows.findIndex((row) => row.includes(i));
+    const to = rows[Math.max(0, Math.min(rows.length - 1, r + dir))];
+    return to[0] >= 0 ? to[0] : to[1];
+  }
+
   function computeScale() {
     if (!doc) return 1;
     if (zoomMode !== 'fit-width' && zoomMode !== 'fit-page') return parseFloat(zoomMode) || 1;
@@ -106,19 +123,11 @@
     };
     const n = doc.pages.length;
     if (spreadOn()) {
-      // like a booklet: page 1 alone on the right, then even | odd pairs
-      for (let i = 0; i < n;) {
+      for (const [a, b] of spreadRows(n)) {
         const row = document.createElement('div');
         row.className = 'row';
-        if (i === 0) {
-          row.appendChild(mk(-1));
-          row.appendChild(mk(0));
-          i = 1;
-        } else {
-          row.appendChild(mk(i));
-          row.appendChild(i + 1 < n ? mk(i + 1) : mk(-1));
-          i += 2;
-        }
+        row.appendChild(mk(a));
+        row.appendChild(mk(b));
         pagesEl.appendChild(row);
       }
     } else {
@@ -2606,8 +2615,8 @@
   on('assoc', () => send({ cmd: 'associate' }));
   on('undo', () => restore(undoStack, redoStack));
   on('redo', () => restore(redoStack, undoStack));
-  on('prev', () => goTo(current - (spreadOn() && current > 1 ? 2 : 1)));
-  on('next', () => goTo(current + (spreadOn() && current > 0 ? 2 : 1)));
+  on('prev', () => doc && goTo(spreadOn() ? spreadStep(current, -1) : current - 1));
+  on('next', () => doc && goTo(spreadOn() ? spreadStep(current, 1) : current + 1));
   on('zoomin', () => stepZoom(1));
   on('zoomout', () => stepZoom(-1));
   // Home
@@ -2705,7 +2714,16 @@
   ['crl', 'crt', 'crr', 'crb'].forEach((id, i) => onChange(id, (v) => setCropSide(i, parseFloat(String(v).replace(',', '.')) / 100)));
 
   $('zoom').addEventListener('change', (e) => setZoom(e.target.value));
-  $('spread').addEventListener('change', () => { commitEdit(); relayout(true); });
+  // Two pages side by side are only useful when the whole spread is on screen: "Fit width" turns
+  // into "Whole page" while the two-page view is on (and back again after)
+  let spreadZoomed = false;
+  $('spread').addEventListener('change', () => {
+    commitEdit();
+    if (spreadOn() && zoomMode === 'fit-width') { zoomMode = 'fit-page'; spreadZoomed = true; }
+    else if (!spreadOn() && spreadZoomed && zoomMode === 'fit-page') zoomMode = 'fit-width';
+    if (!spreadOn()) spreadZoomed = false;
+    relayout(true);
+  });
   $('font').addEventListener('change', (e) => e.target.value.trim() && format({ font: e.target.value.trim() }));
   $('size').addEventListener('change', (e) => { const v = parseFloat(e.target.value); if (v >= 1 && v <= 999) format({ size: v }); });
   $('color').addEventListener('change', (e) => format({ color: e.target.value }));
