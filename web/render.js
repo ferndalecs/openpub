@@ -928,6 +928,23 @@
       img.style.top = pt(turned ? (ih - iw) / 2 : 0);
       const turn = { 2: 'scaleX(-1)', 3: 'rotate(180deg)', 4: 'scaleY(-1)', 5: 'rotate(90deg) scaleY(-1)', 6: 'rotate(270deg)', 7: 'rotate(90deg) scaleX(-1)', 8: 'rotate(90deg)' }[orient];
       if (turn) img.style.transform = turn;
+      // adjustments made in OpenPub
+      const fl = [];
+      if (shape.brightness) fl.push(`brightness(${Math.max(0, 1 + shape.brightness / 100)})`);
+      if (shape.contrast) fl.push(`contrast(${Math.max(0, 1 + shape.contrast / 100)})`);
+      if (shape.gray) fl.push('grayscale(1)');
+      if (fl.length) img.style.filter = fl.join(' ');
+      // a picture given a shape (ellipse, star...) shows inside its outline
+      const outline = ![0, 1, 75, 201, 202].includes(shape.shape_type) && geo.paths.find((p) => p.fill !== false);
+      if (outline) {
+        const id = 'opc' + (++gradId);
+        const defs = svgEl('svg', { class: 'op-svg', width: 0, height: 0 });
+        const cp = svgEl('clipPath', { id, clipPathUnits: 'userSpaceOnUse' });
+        cp.appendChild(svgEl('path', { d: outline.d, transform: `scale(${96 / 72})` }));
+        defs.appendChild(cp);
+        d.appendChild(defs);
+        pic.style.clipPath = `url(#${id})`;
+      }
       holder.appendChild(img);
       if (shape.flip_h || shape.flip_v) pic.style.transform = `scale(${shape.flip_h ? -1 : 1}, ${shape.flip_v ? -1 : 1})`;
       pic.appendChild(holder);

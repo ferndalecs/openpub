@@ -673,6 +673,7 @@
   function kindName(s) {
     if (s.kind === 'table') return `Table (${s.table.rows.length} × ${s.table.cols.length})`;
     if (s.kind === 'group') return `Group of ${(s.children || []).length}`;
+    if (s.wordart) return 'WordArt';
     if (s.kind === 'picture' || s.image != null) return 'Picture';
     if (s.kind === 'line') return 'Line';
     if (s.kind === 'text') return 'Text box';
@@ -786,6 +787,7 @@
     const shape = topShape(e.target, sheetEl);
     if (current !== page) setCurrent(page, true);
     const ctrl = e.ctrlKey || e.metaKey, add = e.shiftKey || ctrl;
+    if (ctrl && !e.shiftKey && shape && shape.link) { e.preventDefault(); send({ cmd: 'openLink', url: shape.link }); return; }
     const tsh = selTable();
     if (tsh && shape === tsh && sel.page === page && !ctrl) { tableDown(e, page, tsh, sheetEl); return; }
     e.preventDefault();
@@ -1443,6 +1445,84 @@
     }
   }
 
+  function addWordArt() {
+    if (!doc) return;
+    const w = Math.min(320, doc.width * 0.6), h = 70;
+    const p = visibleSpot(w, h);
+    addShape({ kind: 'shape', shape_type: 136, x: p.x, y: p.y, w, h, fill: { color: '#0f6e5f', opacity: 1 }, wordart: { text: 'Your text', font: 'Arial Black', size: 36, stretch: true } }, false);
+    showTab('shape');
+    syncToolbar();
+    $('watext').focus();
+    $('watext').select();
+  }
+  function setWordArt(change, type) {
+    editShapes((s) => {
+      if (!s.wordart) return;
+      if (change) Object.assign(s.wordart, change);
+      if (type) s.shape_type = type;
+    }, true);
+  }
+  /** dir: null = no gradient, a number = its angle; color2: the second colour. */
+  function setGradient(dir, color2) {
+    editShapes((s) => {
+      if (!s.fill || s.fill.image != null || s.kind === 'line') return;
+      if (dir === null) { delete s.fill.color2; delete s.fill.angle; return; }
+      s.fill.color2 = color2 || s.fill.color2 || $('fill2').value;
+      if (dir !== undefined) s.fill.angle = dir;
+      else if (s.fill.angle == null) s.fill.angle = 180;
+    });
+  }
+  function setShadow(on, color) {
+    editShapes((s) => {
+      if (!on) { delete s.shadow; return; }
+      s.shadow = Object.assign({ color: $('shadowcolor').value, opacity: 1, dx: 3, dy: 3 }, s.shadow, color ? { color } : {});
+    });
+  }
+  /** A typed address as a link: web and e-mail addresses only. */
+  function normalLink(v) {
+    let u = String(v || '').trim();
+    if (!u) return null;
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(u)) u = 'mailto:' + u;
+    else if (!/^[a-z][a-z0-9+.-]*:/i.test(u)) u = 'https://' + u;
+    if (!/^(https?:\/\/|mailto:)/i.test(u) || /[\s"<>^`|]/.test(u) || u.length > 2000) return null;
+    return u;
+  }
+  function setLink(v) {
+    if (!sel) return;
+    const u = v == null ? null : normalLink(v);
+    if (v != null && String(v).trim() && !u) { showNotes(['Only web addresses (http or https) and e-mail addresses can be used as links.'], 6000); return; }
+    editShapes((s) => { if (u) s.link = u; else delete s.link; }, true);
+  }
+  /** Colours a table: { head } the first row, { band } every other row below it, { plain } none. */
+  function setTableStyle(st) {
+    const sh = selTable();
+    if (!sh) return;
+    commitEdit();
+    pushUndo(sel.page);
+    for (const c of sh.table.cells) {
+      if (st.plain) delete c.fill;
+      if (st.head && c.r0 === 0) {
+        c.fill = { color: st.head, opacity: 1 };
+        // text that reads on the colour, in bold
+        const n = parseInt(st.head.slice(1), 16), lum = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+        for (const p of c.paras) for (const r of p.runs) { r.bold = true; r.color = lum < 0.55 ? '#ffffff' : '#000000'; }
+      }
+      if (st.band && c.r0 > 0) {
+        if (c.r0 % 2 === 0) c.fill = { color: st.band, opacity: 1 }; else delete c.fill;
+      }
+    }
+    rerender(sel.page);
+    syncToolbar();
+  }
+  function setPicture(change) {
+    editShapes((s) => {
+      if (s.image == null) return;
+      for (const k of ['brightness', 'contrast']) if (k in change) { if (change[k]) s[k] = change[k]; else delete s[k]; }
+      if ('gray' in change) { if (change.gray) s.gray = true; else delete s.gray; }
+      if ('shape_type' in change && change.shape_type) s.shape_type = change.shape_type;
+    });
+  }
+
   /** Lines objects up: with each other when several are selected, with the page when one is. */
   function alignSel(mode) {
     if (!sel || !doc) return;
@@ -1821,6 +1901,26 @@
     if (f && isHex(f.fill.color)) $('fill').value = f.fill.color;
     setv('transp', f ? Math.round((1 - (f.fill.opacity == null ? 1 : f.fill.opacity)) * 100) : '');
     if (l && isHex(l.line.color)) $('linecolor').value = l.line.color;
+    // gradient, shadow, link, WordArt
+    const grad = f && f.fill.color2 ? f.fill : null;
+    setv('graddir', grad ? String(grad.angle || 0) : '');
+    if ($('graddir').selectedIndex < 0) $('graddir').value = '180';
+    if (grad && isHex(grad.color2)) $('fill2').value = grad.color2;
+    const shd = lv.find((s) => s.shadow);
+    tog('shadowbtn', !!shd);
+    if (shd && isHex(shd.shadow.color)) $('shadowcolor').value = shd.shadow.color;
+    const linked = sel && sel.shapes.find((s) => s.link);
+    $('linkbtn').classList.toggle('has', !!linked);
+    if ($('linkpop').hidden) setv('linkurl', linked ? linked.link : '');
+    const wa = sel && sel.shapes.length === 1 && sel.shape.wordart ? sel.shape : null;
+    $('wagrp').hidden = !wa;
+    if (wa) { setv('watext', wa.wordart.text.replace(/\n/g, ' / ')); setv('wafont', wa.wordart.font); setv('wastyle', String(wa.shape_type)); }
+    // picture adjustments
+    const picSel = selPicture();
+    setv('picbri', picSel ? Math.round(picSel.brightness || 0) : '');
+    setv('piccon', picSel ? Math.round(picSel.contrast || 0) : '');
+    tog('picgray', picSel && picSel.gray);
+    if (picSel) { setv('picshape', String(picSel.shape_type)); if ($('picshape').selectedIndex < 0) $('picshape').value = '75'; }
     if (sel) {
       const lw = l ? l.line.width : 0;
       const opt = [...$('linewidth').options].reduce((a, o) => (Math.abs(o.value - lw) < Math.abs(a.value - lw) ? o : a));
@@ -1905,7 +2005,9 @@
     const text = s || !!textSel;
     en(['font', 'size', 'grow', 'shrink', 'bold', 'italic', 'underline', 'strike', 'super', 'sub', 'color', 'al', 'ac', 'ar', 'aj', 'bul', 'bulmenu', 'num', 'nummenu', 'indl', 'indr', 'spbtn'], text);
     const lv = sel ? leaves(sel.shapes).filter((x) => x.kind !== 'table') : [];
-    en(['fill', 'nofill', 'transp'], s && lv.some((x) => x.kind !== 'line'));
+    en(['fill', 'nofill', 'transp', 'graddir', 'fill2'], s && lv.some((x) => x.kind !== 'line'));
+    en(['shadowbtn', 'shadowcolor', 'linkbtn'], s);
+    en(['addwa'], has);
     en(['linecolor', 'linewidth', 'dash'], s && lv.length > 0);
     en(['gx', 'gy', 'grot', 'rotl', 'rotr', 'rot0'], s);
     en(['gw', 'gh'], s && n === 1);
@@ -2166,7 +2268,11 @@
   function setFill(color) {
     editShapes((s) => {
       if (s.kind === 'line') return;
-      if (color) s.fill = { color, opacity: s.fill && s.fill.opacity != null && !s.fill.image ? s.fill.opacity : 1 };
+      if (color) {
+        const old = s.fill && !s.fill.image ? s.fill : null;
+        s.fill = { color, opacity: old && old.opacity != null ? old.opacity : 1 };
+        if (old && old.color2) { s.fill.color2 = old.color2; if (old.angle) s.fill.angle = old.angle; }
+      }
       else delete s.fill;
     });
   }
@@ -2841,6 +2947,7 @@
     }
     if (pane === 'open') fillRecent();
     if (pane === 'new') fillNew();
+    if (pane === 'open' && !doc) askAssoc();
     if (pane === 'info') fillInfo();
     $('file').hidden = false;
     $('filebody').scrollTop = 0;
@@ -2900,6 +3007,7 @@
   ];
   function fillNew() {
     const box = $('newcards');
+    fillTemplates();
     if (box.children.length) return;
     for (const [name, what, w, h] of NEW_SIZES) {
       const card = mk('button', 'card');
@@ -2914,6 +3022,185 @@
       card.appendChild(mk('span', '', what));
       card.addEventListener('click', () => send({ cmd: 'new', width: w, height: h }));
       box.appendChild(card);
+    }
+  }
+
+  /** The first-run question: shown once, on the start screen, when .pub files open elsewhere. */
+  async function askAssoc() {
+    try {
+      const st = await (await fetch('start.json?v=' + Date.now())).json();
+      $('assocask').hidden = !st.askAssoc;
+    } catch (e) { $('assocask').hidden = true; }
+  }
+
+  // ---- ready-made designs ---------------------------------------------------------------------
+
+  let pendingTemplate = null;
+  const A4W = 210 * MM, A4H = 297 * MM;
+  /** Builders of the designs: each returns the pages (lists of shapes) for the given page size. */
+  const TEMPLATES = {
+    flyer: { name: 'Event flyer', what: 'A4 portrait', w: A4W, h: A4H, colors: ['#0f6e5f', '#f4a261', '#fff8ec'] },
+    newsletter: { name: 'Newsletter', what: 'A4 portrait · 2 pages', w: A4W, h: A4H, colors: ['#1f4e79', '#e6eef5', '#ffffff'] },
+    certificate: { name: 'Certificate', what: 'A4 landscape', w: A4H, h: A4W, colors: ['#8a6d1d', '#fbf6e6', '#ffffff'] },
+    poster: { name: 'Notice or poster', what: 'A4 portrait', w: A4W, h: A4H, colors: ['#b3261e', '#ffffff', '#ffffff'] },
+  };
+  function templatePages(id, W, H) {
+    let seq = 1000000;
+    const run = (text, o) => ({ text, font: o.font || 'Calibri', size: o.size || 12, color: o.color || '#23211d', bold: !!o.bold, italic: !!o.italic });
+    const para = (text, o) => Object.assign({}, DEFAULT_PARA, { align: o.align || 'left', after: o.after == null ? 6 : o.after, spacing: o.spacing || 1.1 }, o.bullet ? { bullet: { text: '•' }, left: 18, first: -18 } : {}, { runs: [run(text, o)] });
+    // lines: [text, style] pairs, or one string with a style for all
+    const text = (x, y, w, h, lines, o) => ({ seq: seq++, kind: 'text', shape_type: 202, x, y, w, h, text: { margins: [4, 4, 4, 4], valign: (o && o.valign) || 'top', columns: 1, column_gap: 0, story: 0, paras: (Array.isArray(lines) ? lines : [[lines, o || {}]]).map(([t, st]) => para(t, Object.assign({}, o, st))) } });
+    const rect = (x, y, w, h, fill, line, type) => Object.assign({ seq: seq++, kind: 'shape', shape_type: type || 1, x, y, w, h, wrap: 'none' }, fill ? { fill: typeof fill === 'string' ? { color: fill, opacity: 1 } : fill } : {}, line ? { line } : {});
+    const rule = (x, y, w, color, width) => ({ seq: seq++, kind: 'line', shape_type: 20, x, y, w, h: 0, line: { color, width: width || 1 }, wrap: 'none' });
+    const m = 42;
+    if (id === 'flyer') {
+      const c = TEMPLATES.flyer.colors;
+      return [[
+        rect(0, 0, W, H, c[2]),
+        rect(0, 0, W, H * 0.4, { color: c[0], opacity: 1, color2: '#14937f', angle: 135 }),
+        text(m, 60, W - 2 * m, 30, 'COMMUNITY EVENT', { size: 14, color: '#d5ebe6', font: 'Calibri', bold: true }),
+        text(m, 92, W - 2 * m - 120, 170, [['Summer', {}], ['Market Day', {}]], { size: 50, color: '#ffffff', font: 'Georgia', bold: true, after: 0, spacing: 1 }),
+        Object.assign(rect(W - m - 150, H * 0.4 - 80, 150, 150, c[1], null, 3), { text: { margins: [6, 6, 6, 6], valign: 'middle', columns: 1, column_gap: 0, story: 0, paras: [para('SAT', { size: 20, bold: true, color: '#ffffff', align: 'center', after: 0 }), para('14 JUNE', { size: 24, bold: true, color: '#ffffff', align: 'center', after: 0 })] } }),
+        text(m, H * 0.4 + 90, W - 2 * m, 90, [['Fresh food, local makers and live music.', {}], ['Bring the whole family for a day outdoors.', {}]], { size: 16 }),
+        text(m, H * 0.4 + 190, W / 2 - m, 150, [['Farm stalls', { bullet: true }], ['Craft tables', { bullet: true }], ['Food trucks', { bullet: true }], ["Children's corner", { bullet: true }]], { size: 14, after: 4 }),
+        Object.assign(rect(W / 2 + 10, H * 0.4 + 190, W / 2 - m - 10, 110, '#ffffff', { color: c[0], width: 1.5 }, 2), { text: { margins: [8, 8, 8, 8], valign: 'middle', columns: 1, column_gap: 0, story: 0, paras: [para('10 am – 4 pm', { size: 16, bold: true, color: c[0], align: 'center', after: 2 }), para('Riverside Park', { size: 16, bold: true, color: c[0], align: 'center', after: 2 }), para('Free entry', { size: 16, bold: true, color: c[0], align: 'center', after: 0 })] } }),
+        rect(0, H - 70, W, 70, '#1c2541'),
+        text(m, H - 50, W - 2 * m, 30, 'www.example.org  ·  01234 567890', { size: 12, color: '#ffffff', align: 'center' }),
+      ]];
+    }
+    if (id === 'newsletter') {
+      const c = TEMPLATES.newsletter.colors;
+      const col = (W - 2 * m - 18) / 2;
+      const story = (x, y, h, head, body) => [
+        text(x, y, col, 30, head, { size: 17, bold: true, color: c[0], font: 'Georgia' }),
+        text(x, y + 30, col, h - 30, body.map((t) => [t, {}]), { size: 11, spacing: 1.15 }),
+      ];
+      const lorem = ['Replace this text with your own news. Keep each story short: two or three paragraphs is plenty.', 'Say what happened, who was involved and what comes next. A quote from someone who was there brings a story to life.'];
+      const photo = (x, y, w, h) => Object.assign(rect(x, y, w, h, c[1], { color: '#b7c7d6', width: 0.75 }), { text: { margins: [4, 4, 4, 4], valign: 'middle', columns: 1, column_gap: 0, story: 0, paras: [para('Picture', { size: 12, color: '#6d7f90', align: 'center', after: 0 })] } });
+      return [[
+        rect(0, 0, W, 130, c[0]),
+        text(m, 34, W - 2 * m, 56, 'School Newsletter', { size: 40, bold: true, color: '#ffffff', font: 'Georgia' }),
+        text(m, 92, W - 2 * m, 24, 'Issue 1  ·  Autumn term', { size: 13, color: '#d7e3ee' }),
+        ...story(m, 160, 250, 'Headline of the main story', lorem),
+        photo(m + col + 18, 160, col, 170),
+        text(m + col + 18, 334, col, 22, 'A caption for the picture', { size: 10, italic: true, color: '#6d685f' }),
+        rule(m, 430, W - 2 * m, c[0], 1.5),
+        ...story(m, 450, 300, 'Second story', lorem),
+        ...story(m + col + 18, 450, 300, 'Dates for your diary', ['Monday 1st – Event name', 'Friday 12th – Event name', 'Wednesday 24th – Event name', 'Thursday 30th – Event name']),
+        text(m, H - 50, W - 2 * m, 24, 'School name  ·  Address  ·  www.example.org', { size: 10, color: '#6d685f', align: 'center' }),
+      ], [
+        rect(0, 0, W, 50, c[0]),
+        text(m, 14, W - 2 * m, 24, 'School Newsletter', { size: 14, bold: true, color: '#ffffff', font: 'Georgia' }),
+        ...story(m, 80, 320, 'Another story', lorem.concat(lorem)),
+        ...story(m + col + 18, 80, 320, 'From the classrooms', lorem.concat(lorem)),
+        photo(m, 430, W - 2 * m, 210),
+        text(m, 646, W - 2 * m, 22, 'A caption for the picture', { size: 10, italic: true, color: '#6d685f' }),
+        Object.assign(rect(m, 690, W - 2 * m, 90, c[1], null, 2), { text: { margins: [10, 8, 10, 8], valign: 'middle', columns: 1, column_gap: 0, story: 0, paras: [para('Get in touch', { size: 15, bold: true, color: c[0], after: 3 }), para('office@example.org  ·  01234 567890', { size: 12, after: 0 })] } }),
+      ]];
+    }
+    if (id === 'certificate') {
+      const c = TEMPLATES.certificate.colors;
+      return [[
+        rect(0, 0, W, H, c[1]),
+        rect(24, 24, W - 48, H - 48, null, { color: c[0], width: 4 }),
+        rect(34, 34, W - 68, H - 68, null, { color: c[0], width: 1 }),
+        text(60, 86, W - 120, 70, 'Certificate of Achievement', { size: 44, bold: true, color: c[0], font: 'Georgia', align: 'center' }),
+        text(60, 176, W - 120, 30, 'This certificate is awarded to', { size: 16, align: 'center', italic: true }),
+        text(60, 216, W - 120, 64, 'Name', { size: 40, bold: true, align: 'center', font: 'Georgia' }),
+        rule(W / 2 - 190, 286, 380, c[0], 1),
+        text(100, 304, W - 200, 60, 'for outstanding effort and achievement in ...', { size: 16, align: 'center' }),
+        rule(110, H - 110, 200, '#23211d', 0.75),
+        text(110, H - 104, 200, 24, 'Date', { size: 12, align: 'center', color: '#6d685f' }),
+        rule(W - 310, H - 110, 200, '#23211d', 0.75),
+        text(W - 310, H - 104, 200, 24, 'Signed', { size: 12, align: 'center', color: '#6d685f' }),
+        Object.assign(rect(W / 2 - 38, H - 150, 76, 76, c[0], null, 59), {}),
+      ]];
+    }
+    const c = TEMPLATES.poster.colors;
+    return [[
+      rect(0, 0, W, 210, c[0]),
+      text(m, 50, W - 2 * m, 120, 'NOTICE', { size: 96, bold: true, color: '#ffffff', align: 'center', font: 'Arial Black', spacing: 1 }),
+      text(m, 250, W - 2 * m, 130, 'The main message goes here', { size: 40, bold: true, align: 'center', font: 'Georgia' }),
+      text(m + 20, 400, W - 2 * m - 40, 160, [['Add the details people need: what is happening, where and when.', {}], ['Keep it short so it can be read from a distance.', {}]], { size: 20, align: 'center', spacing: 1.15 }),
+      Object.assign(rect(m, 600, W - 2 * m, 120, null, { color: c[0], width: 3 }, 2), { text: { margins: [10, 10, 10, 10], valign: 'middle', columns: 1, column_gap: 0, story: 0, paras: [para('When:  day, date and time', { size: 20, bold: true, align: 'center', after: 4 }), para('Where:  place', { size: 20, bold: true, align: 'center', after: 0 })] } }),
+      text(m, H - 80, W - 2 * m, 30, 'Questions? Contact name  ·  01234 567890', { size: 13, align: 'center', color: '#6d685f' }),
+    ]];
+  }
+  function applyTemplate(id) {
+    if (!TEMPLATES[id]) return;
+    const pages = templatePages(id, doc.width, doc.height);
+    doc.pages = pages.map((shapes, i) => ({ name: 'Page ' + (i + 1), number: i + 1, shapes }));
+  }
+  function fillTemplates() {
+    const box = $('tplcards');
+    if (box.children.length) return;
+    for (const id of Object.keys(TEMPLATES)) {
+      const t = TEMPLATES[id];
+      const card = mk('button', 'card');
+      const sheet = mk('div', 'sheetbox');
+      const mini = mk('div', 'mini tpl');
+      const k = 118 / (420 * MM);
+      mini.style.width = Math.round(t.w * k) + 'px';
+      mini.style.height = Math.round(t.h * k) + 'px';
+      mini.style.background = t.colors[2];
+      // a sketch of the design: a coloured band and a few lines
+      const band = mk('i'); band.style.cssText = `left:0;top:0;width:100%;height:${id === 'certificate' ? 100 : 34}%;background:${id === 'certificate' ? t.colors[1] : t.colors[0]}`;
+      mini.appendChild(band);
+      for (let n = 0; n < 4; n++) { const ln = mk('i'); ln.style.cssText = `left:14%;top:${46 + n * 11}%;width:${72 - n * 9}%;height:3%;background:${id === 'certificate' ? t.colors[0] : '#c9c5bc'}`; mini.appendChild(ln); }
+      sheet.appendChild(mini);
+      card.appendChild(sheet);
+      card.appendChild(mk('b', '', t.name));
+      card.appendChild(mk('span', '', t.what));
+      card.addEventListener('click', () => { pendingTemplate = id; send({ cmd: 'new', width: t.w, height: t.h }); });
+      box.appendChild(card);
+    }
+  }
+
+  // ---- save a page as a picture ---------------------------------------------------------------
+
+  /** Draws a page into a PNG (base64), at `dpi` dots per inch. */
+  async function pagePng(index, dpi) {
+    const scale = dpi / 96;
+    const wrap = OpenPub.renderPage(doc, index, { scale, imageUrl });
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;left:-100000px;top:0;';
+    document.body.appendChild(host);
+    try {
+      host.appendChild(wrap);
+      wrap.opFinish();
+      // the picture is drawn from a self-contained copy: pictures go in as data
+      for (const img of wrap.querySelectorAll('img')) {
+        const blob = await (await fetch(img.src)).blob();
+        img.src = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
+      }
+      const w = Math.round(doc.width * PX * scale), h = Math.round(doc.height * PX * scale);
+      const css = (document.getElementById('op-css') || {}).textContent || '';
+      const xml = new XMLSerializer().serializeToString(wrap);
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><foreignObject x="0" y="0" width="${w}" height="${h}"><div xmlns="http://www.w3.org/1999/xhtml"><style>${css.replace(/</g, '&lt;')}</style>${xml}</div></foreignObject></svg>`;
+      const img = new Image();
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+      await img.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const c2 = canvas.getContext('2d');
+      c2.fillStyle = '#ffffff';
+      c2.fillRect(0, 0, w, h);
+      c2.drawImage(img, 0, 0, w, h);
+      return canvas.toDataURL('image/png').split(',')[1];
+    } finally {
+      host.remove();
+    }
+  }
+  async function exportPng() {
+    if (!doc || busy) return;
+    commitEdit();
+    try {
+      const data = await pagePng(current, 150);
+      const base = String(doc.name || 'Publication').replace(/\.[a-z]+$/i, '');
+      send({ cmd: 'savePng', data, name: `${base} - page ${current + 1}`, path: exportPng.path });
+    } catch (e) {
+      showNotes(['The picture could not be made: ' + e]);
     }
   }
 
@@ -3018,6 +3305,10 @@
       return;
     }
     doc = data;
+    if (pendingTemplate) {
+      if (!doc.path) applyTemplate(pendingTemplate);
+      pendingTemplate = null;
+    }
     sel = null;
     editing = null;
     textSel = null;
@@ -3108,6 +3399,9 @@
   on('fsave', () => { hideFile(); save(false); });
   on('saveas', () => { hideFile(); save(true); });
   on('pdf', () => { hideFile(); exportPdf(); });
+  on('png', () => { hideFile(); exportPng(); });
+  on('assocyes', () => { $('assocask').hidden = true; send({ cmd: 'assocAnswer', yes: true }); });
+  on('assocno', () => { $('assocask').hidden = true; send({ cmd: 'assocAnswer', yes: false }); });
   on('docx', () => { if (!doc) return; hideFile(); send({ cmd: 'docx', doc: docJson() }); });
   on('print', () => { hideFile(); printAll(); });
   on('assoc', () => send({ cmd: 'associate' }));
@@ -3133,6 +3427,27 @@
   on('grow', () => stepSize(1));
   on('shrink', () => stepSize(-1));
   on('findbtn', () => showFind());
+  // stage 5: WordArt, gradient, shadow, link, table style, picture adjustments
+  on('addwa', addWordArt);
+  onChange('watext', (v) => setWordArt({ text: v.split(/\s*\/\s*/).join('\n') || ' ' }));
+  onChange('wafont', (v) => v.trim() && setWordArt({ font: v.trim() }));
+  onChange('wastyle', (v) => setWordArt(null, parseInt(v, 10)));
+  onChange('graddir', (v) => setGradient(v === '' ? null : parseFloat(v)));
+  onChange('fill2', (v) => setGradient(undefined, v));
+  on('shadowbtn', () => setShadow(!$('shadowbtn').classList.contains('on')));
+  onChange('shadowcolor', (v) => setShadow(true, v));
+  on('linkset', () => { setLink($('linkurl').value); closeMenus(); });
+  on('linkdel', () => { setLink(null); closeMenus(); });
+  on('linkopen', () => { const u = normalLink($('linkurl').value); if (u) send({ cmd: 'openLink', url: u }); });
+  $('linkurl').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); setLink($('linkurl').value); closeMenus(); } });
+  onChange('tblhead', (v) => setTableStyle({ head: v }));
+  onChange('tblband', (v) => setTableStyle({ band: v }));
+  on('tblplain', () => setTableStyle({ plain: true }));
+  onChange('picbri', (v) => setPicture({ brightness: Math.max(-100, Math.min(100, parseFloat(v) || 0)) }));
+  onChange('piccon', (v) => setPicture({ contrast: Math.max(-100, Math.min(100, parseFloat(v) || 0)) }));
+  on('picgray', () => setPicture({ gray: !$('picgray').classList.contains('on') }));
+  onChange('picshape', (v) => setPicture({ shape_type: parseInt(v, 10) }));
+  on('picreset', () => setPicture({ brightness: 0, contrast: 0, gray: false, shape_type: 75 }));
   // Shape Format: align and flip
   for (const [id, mode] of [['alnl', 'left'], ['alnc', 'center'], ['alnr', 'right'], ['alnt', 'top'], ['alnm', 'middle'], ['alnb', 'bottom']]) on(id, () => alignSel(mode));
   on('fliph', () => flipSel('h'));
@@ -3300,7 +3615,7 @@
   $('pageno').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.target.blur(); view.focus({ preventScroll: true }); } });
 
   // drop-down menus
-  for (const [btn, menu] of [['shapesbtn', 'shapepop'], ['bulmenu', 'bulpop'], ['nummenu', 'numpop'], ['spbtn', 'sppop'], ['addtable', 'tblpop']]) {
+  for (const [btn, menu] of [['linkbtn', 'linkpop'], ['shapesbtn', 'shapepop'], ['bulmenu', 'bulpop'], ['nummenu', 'numpop'], ['spbtn', 'sppop'], ['addtable', 'tblpop']]) {
     $(btn).addEventListener('click', (e) => {
       e.stopPropagation();
       const open = $(menu).hidden;
@@ -3442,6 +3757,7 @@
       setMargin, setVAlign, setColumns, setColumnGap,
       setBullet, setNumbering, clearList, toggleBullets, toggleNumbering, indent, setSpacing, setParaSpace,
       selectCells, insertRows, insertCols, deleteRows, deleteCols, mergeCells, splitCells, setCellFill, setCellVAlign, setBorders, setPen, clearCells,
+      addWordArt, setWordArt, setGradient, setShadow, setLink, normalLink, setTableStyle, setPicture, pagePng, exportPng, applyTemplate, templatePages,
       alignSel, flipSel, setPageSize, setPageBackground, addPageBorder,
       findMatches, findNext, replaceOne, replaceAll, showFind, hideFind, stepSize, toggleScript, replaceRange,
       replacePicture, setCropMode, cropTo, setCropSide, copySel, pasteClip, handlePaste, setMasterMode, showTab, syncToolbar,

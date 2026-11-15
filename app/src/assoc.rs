@@ -51,6 +51,28 @@ pub fn register() -> Result<(), String> {
     Ok(())
 }
 
+/// Whether `.pub` files open with OpenPub for this user: their own choice in Windows if they
+/// made one, otherwise the registered default.
+#[cfg(windows)]
+pub fn pub_is_ours() -> bool {
+    use winreg::RegKey;
+    use winreg::enums::{HKEY_CLASSES_ROOT, HKEY_CURRENT_USER};
+    let choice: Option<String> = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.pub\UserChoice")
+        .ok()
+        .and_then(|k| k.get_value("ProgId").ok());
+    if let Some(c) = choice {
+        return c.eq_ignore_ascii_case(PUB_PROG_ID);
+    }
+    let default: String = RegKey::predef(HKEY_CLASSES_ROOT).open_subkey(".pub").ok().and_then(|k| k.get_value("").ok()).unwrap_or_default();
+    default.eq_ignore_ascii_case(PUB_PROG_ID)
+}
+
+#[cfg(not(windows))]
+pub fn pub_is_ours() -> bool {
+    true
+}
+
 #[cfg(windows)]
 pub fn unregister() -> Result<(), String> {
     use winreg::RegKey;

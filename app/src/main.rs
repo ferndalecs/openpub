@@ -36,6 +36,8 @@ struct State {
     path: Option<PathBuf>,
     /// Unsaved changes (reported by the page).
     dirty: bool,
+    /// A test script is driving the program (no questions, nothing remembered).
+    testing: bool,
 }
 
 /// What to do once a save has finished.
@@ -59,6 +61,10 @@ enum UserEvent {
     PdfDone(Result<PathBuf, String>),
     AddPicture,
     Associate,
+    /// Open a web or e-mail address in the person's browser, after asking.
+    OpenLink(String),
+    /// Save a picture of a page (PNG data from the page) where the person chooses.
+    SavePng { data: Vec<u8>, name: String, forced: Option<PathBuf> },
     Drag(bool),
 }
 
@@ -79,6 +85,11 @@ fn serve(state: &Mutex<State>, request: Request<Vec<u8>>) -> Response<Cow<'stati
         "app.js" => respond(js, APP_JS.as_bytes().into(), false),
         "render.js" => respond(js, openpub_core::export::RENDER_JS.as_bytes().into(), false),
         "hyphen.js" => respond(js, openpub_core::export::HYPHEN_JS.as_bytes().into(), false),
+        // what the start screen should offer
+        "start.json" => {
+            let ask = !state.lock().unwrap().testing && !recent::assoc_asked() && !assoc::pub_is_ours();
+            respond("application/json; charset=utf-8", format!("{{\"askAssoc\":{ask}}}").into_bytes().into(), false)
+        }
         "recent.json" => respond("application/json; charset=utf-8", recent::json().into_bytes().into(), false),
         "doc.json" => {
             let st = state.lock().unwrap();
@@ -160,6 +171,7 @@ fn main() -> wry::Result<()> {
     }
     let state = Arc::new(Mutex::new(State::default()));
     let testing = test_script.is_some();
+    state.lock().unwrap().testing = testing;
     let mut untitled = 0;
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
@@ -412,12 +424,57 @@ fn main() -> wry::Result<()> {
                 }
                 Err(e) => error(&webview, &format!("Couldn't register OpenPub for .pub files: {e}")),
             },
+            Event::UserEvent(UserEvent::OpenLink(url)) => match safe_link(&url) {
+                Ok(url) => {
+                    let go = rfd::MessageDialog::new()
+                        .set_parent(&window)
+                        .set_title("Open this link?")
+                        .set_description(format!("{url}\n\nThis opens in your web browser or mail program."))
+                        .set_buttons(rfd::MessageButtons::OkCancel)
+                        .show();
+                    if go == rfd::MessageDialogResult::Ok {
+                        if let Err(e) = std::process::Command::new("rundll32.exe").arg("url.dll,FileProtocolHandler").arg(&url).spawn() {
+                            error(&webview, &format!("Couldn't open the link: {e}"));
+                        }
+                    }
+                }
+                Err(e) => error(&webview, &e),
+            },
+            Event::UserEvent(UserEvent::SavePng { data, name, forced }) => {
+                let target = forced.or_else(|| {
+                    let mut dlg = rfd::FileDialog::new().set_title("Save page as a picture").add_filter("PNG pictures", &["png"]).set_parent(&window).set_file_name(format!("{name}.png"));
+                    if let Some(dir) = state.lock().unwrap().path.as_deref().and_then(|p| p.parent()) {
+                        dlg = dlg.set_directory(dir);
+                    }
+                    dlg.save_file().map(|p| if p.extension().is_some() { p } else { p.with_extension("png") })
+                });
+                let Some(target) = target else { return };
+                match std::fs::write(&target, &data) {
+                    Ok(()) => note(&webview, &format!("Saved {}", file_name(&target))),
+                    Err(e) => error(&webview, &format!("Couldn't save the picture: {e}")),
+                }
+            }
             Event::UserEvent(UserEvent::Drag(on)) => {
                 let _ = webview.evaluate_script(&format!("window.OpenPubApp && OpenPubApp.drag({on})"));
             }
             _ => {}
         }
     });
+}
+
+/// A link OpenPub will hand to Windows: web and e-mail addresses only (other kinds can start
+/// programs), with nothing that could be read as more than an address.
+fn safe_link(url: &str) -> Result<String, String> {
+    let u = url.trim();
+    let lower = u.to_ascii_lowercase();
+    let kind_ok = (lower.starts_with("https://") || lower.starts_with("http://")) && u.len() > 10 || lower.starts_with("mailto:") && u.len() > 9;
+    if !kind_ok {
+        return Err("Only web addresses (http or https) and e-mail addresses (mailto:) can be opened.".into());
+    }
+    if u.len() > 2000 || u.chars().any(|c| c.is_control() || c.is_whitespace() || matches!(c, '"' | '<' | '>' | '^' | '`' | '|')) {
+        return Err("That address has characters that aren't allowed in a link.".into());
+    }
+    Ok(u.to_string())
 }
 
 /// Asks where to export to, suggesting the document's name with the new extension.
@@ -463,6 +520,22 @@ fn on_message(body: &str, state: &Mutex<State>, proxy: &EventLoopProxy<UserEvent
         Some("quit") if cfg!(debug_assertions) => UserEvent::Quit,
         Some("addPicture") => UserEvent::AddPicture,
         Some("associate") => UserEvent::Associate,
+        // the answer to the first-run question
+        Some("assocAnswer") => {
+            recent::set_assoc_asked();
+            if msg["yes"] == true { UserEvent::Associate } else { return }
+        }
+        Some("openLink") => UserEvent::OpenLink(msg["url"].as_str().unwrap_or("").to_string()),
+        Some("savePng") => {
+            use base64::Engine;
+            let Ok(data) = base64::engine::general_purpose::STANDARD.decode(msg["data"].as_str().unwrap_or("")) else { return };
+            // a PNG and nothing else
+            if !data.starts_with(&[0x89, b'P', b'N', b'G']) {
+                return;
+            }
+            let name: String = msg["name"].as_str().unwrap_or("Page").chars().filter(|c| !matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|')).collect();
+            UserEvent::SavePng { data, name, forced: forced() }
+        }
         Some("dirty") => {
             state.lock().unwrap().dirty = msg["value"].as_bool().unwrap_or(false);
             return;

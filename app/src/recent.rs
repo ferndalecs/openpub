@@ -51,6 +51,27 @@ pub fn contains(path: &Path) -> bool {
     list().iter().any(|p| same(p, path))
 }
 
+fn settings_file() -> Option<PathBuf> {
+    std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("OpenPub").join("settings.json"))
+}
+
+/// Whether the person has already answered the "open .pub files with OpenPub?" question.
+pub fn assoc_asked() -> bool {
+    settings_file()
+        .and_then(|f| std::fs::read_to_string(f).ok())
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .map(|v| v["assocAsked"] == true)
+        .unwrap_or(false)
+}
+
+pub fn set_assoc_asked() {
+    let Some(file) = settings_file() else { return };
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(file, "{\n  \"assocAsked\": true\n}\n");
+}
+
 /// The list for the page: name, folder and whether the file is still there.
 pub fn json() -> String {
     let items: Vec<serde_json::Value> = list()

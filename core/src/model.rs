@@ -72,6 +72,16 @@ pub struct Shape {
     pub flip_v: bool,
     #[serde(skip_serializing_if = "is_false")]
     pub from_master: bool,
+    /// Web or e-mail address the object links to (set in OpenPub).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
+    /// Picture adjustments, -100 to 100 (0 = as stored), and black-and-white.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub brightness: f64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub contrast: f64,
+    #[serde(skip_serializing_if = "is_false")]
+    pub gray: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fill: Option<Fill>,
     #[serde(skip_serializing_if = "Option::is_none")]

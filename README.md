@@ -39,7 +39,7 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
 ## What it does
 
 * **File screen** (the File button; also the start screen): New (a blank publication in A4,
-  A5, A3 or Letter - Ctrl+N), Open with the list of recent files, Save, Save As, Export, Print,
+  A5, A3 or Letter, or a ready-made flyer, newsletter, certificate or notice - Ctrl+N), Open with the list of recent files, Save, Save As, Export, Print,
   and Info (location, pages, page size, and which of the publication's fonts are installed).
 * **Status bar**: page navigation, the selected object with its position and size, the
   two-page view and a zoom slider (10% to 800%).
@@ -56,18 +56,20 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
   * Find & Replace (Ctrl+F / Ctrl+H) across the whole publication, with Match case, Replace and
     Replace All (one undo step).
   * Shapes and pictures: a gallery of about 60 shapes (basic shapes, block arrows, flowchart,
-    stars and banners, callouts); fill colour and transparency, outline colour/width/dash; align
-    objects with each other or the page, flip; replace a picture, crop it with handles or by
-    percentages.
+    stars and banners, callouts); WordArt (text, font, straight/arched/wavy/slanted); fill colour,
+    two-colour gradient and transparency, outline colour/width/dash, shadow; align objects with
+    each other or the page, flip; a link to a web or e-mail address (Ctrl+click opens it, after
+    asking); replace a picture, crop it with handles or by percentages, brightness, contrast,
+    grayscale, show it inside a shape.
   * Tables: insert; add/delete rows and columns, merge/split cells, cell fill, vertical
-    alignment and borders.
+    alignment and borders; header-row and banded-row colours.
   * Pages: add, duplicate, delete, reorder (buttons or drag in the page list); page size (A4,
     A5, A3, Letter, Legal, Tabloid or custom) and orientation; page background colour; page
     border; edit the master page items (headers, footers, page numbers).
   * Undo/redo with Ctrl+Z / Ctrl+Y.
 * **Save** to OpenPub's own format, `.opub` (a zip with `document.json` and the pictures).
   OpenPub does not write `.pub` files: the original is never modified.
-* **Export** to PDF (real text, the publication's page size), to a Word document (`.docx`:
+* **Export** to PDF (real text, the publication's page size), a PNG picture of a page, to a Word document (`.docx`:
   editable text boxes - linked where Publisher links them -, real Word numbering, tables,
   pictures, Office shapes, WordArt as Word text effects, shadows) and print.
 * **File association**: the installers register OpenPub for `.pub` and `.opub`; File > Options
@@ -120,7 +122,8 @@ The editor has automated checks that run inside a debug build:
 `target/debug/openpub.exe samples/year7-booklet.pub --eval=tools/edittest.js` (and
 `tools/apptest.js`, `tools/filetest.js` for the File screen and status bar, `tools/findtest.js` for Find &
 Replace and the text buttons, `tools/pagetest.js` for the shapes gallery, align/flip and page
-setup); results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the
+setup, `tools/extratest.js` for WordArt, effects, links, table styles, picture adjustments,
+the page picture and the designs); results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the
 feature samples to Word, opens each in Word and compares them with Publisher's pages.
 
 ## Known gaps
@@ -141,7 +144,9 @@ feature samples to Word, opens each in Word and compares them with Publisher's p
   moved in a document saved by Publisher, the text follows Publisher's saved list of what it
   flows around (shapes added in OpenPub always count).
 * Word export: Word lays text out itself, so line breaks can differ from Publisher's; wrapping
-  around shapes is approximated per paragraph.
+  around shapes is approximated per paragraph. Links on objects and picture adjustments
+  (brightness, contrast, grayscale, picture-in-a-shape) made in OpenPub aren't carried into the
+  Word file; links aren't clickable in the PDF.
 * Saving back to `.pub` is not supported.
 
 ## Contributing

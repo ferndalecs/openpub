@@ -61,6 +61,9 @@
     <symbol id="i-bin" viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="13" height="13" stroke-dasharray="1.4 1.4" opacity=".5"/><path d="M8 1.5v13M1.5 8h13"/></symbol>
     <symbol id="i-bnone" viewBox="0 0 16 16"><g stroke-dasharray="1.4 1.4" opacity=".5"><rect x="1.5" y="1.5" width="13" height="13"/><path d="M8 1.5v13M1.5 8h13"/></g></symbol>
     <symbol id="i-swap" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="9" height="8" rx="1"/><path d="M13.5 6v7.5H6M11.8 11.7l1.7 1.8 1.6-1.8"/></symbol>
+    <symbol id="i-wa" viewBox="0 0 16 16"><path d="M2 13L5.5 3h1L10 13M3.4 9.5h5.2" stroke-width="1.6"/><path d="M11 13c2-1.5 2.5-6 1.2-8.5" stroke-dasharray="1.5 1.3"/></symbol>
+    <symbol id="i-shadow" viewBox="0 0 16 16"><rect x="5" y="5" width="9" height="9" fill="currentColor" opacity=".35" stroke="none"/><rect x="2" y="2" width="9" height="9" fill="#fff"/></symbol>
+    <symbol id="i-link" viewBox="0 0 16 16"><path d="M6.5 9.5l3-3M7 4.5l1.3-1.3a2.6 2.6 0 0 1 3.7 3.7L10.7 8.2M9 11.5l-1.3 1.3a2.6 2.6 0 0 1-3.7-3.7L5.3 7.8"/></symbol>
     <symbol id="i-shapes" viewBox="0 0 16 16"><rect x="1.5" y="6.5" width="8" height="8"/><circle cx="10.5" cy="5.5" r="4"/></symbol>
     <symbol id="i-port" viewBox="0 0 16 16"><rect x="4" y="1.5" width="8" height="13"/></symbol>
     <symbol id="i-land" viewBox="0 0 16 16"><rect x="1.5" y="4" width="13" height="8"/></symbol>
@@ -250,7 +253,10 @@
         <div class="gl">Illustrations</div>
       </div>
       <div class="grp" role="group" aria-label="Text">
-        <div class="gb"><button id="addtext" class="big" title="Add a text box"><svg class="i"><use href="#i-text"/></svg>Text box</button></div>
+        <div class="gb">
+          <button id="addtext" class="big" title="Add a text box"><svg class="i"><use href="#i-text"/></svg>Text box</button>
+          <button id="addwa" class="big" title="Add WordArt: decorative text stretched to its box"><svg class="i"><use href="#i-wa"/></svg>WordArt</button>
+        </div>
         <div class="gl">Text</div>
       </div>
     </div>
@@ -330,6 +336,54 @@
           <div class="r"><label class="fld" title="Fill transparency (0% = solid)">Transparency<input id="transp" type="number" min="0" max="100" step="5" aria-label="Fill transparency in percent">%</label></div>
         </div>
         <div class="gl">Fill</div>
+      </div>
+      <div class="grp" role="group" aria-label="Gradient and shadow">
+        <div class="gb col">
+          <div class="r">
+            <select id="graddir" title="Gradient: blend the fill colour into a second colour" aria-label="Gradient direction">
+              <option value="">No gradient</option>
+              <option value="180">Top to bottom</option>
+              <option value="90">Left to right</option>
+              <option value="135">Diagonal</option>
+            </select>
+            <label class="swatch" title="Second colour of the gradient">To<input id="fill2" type="color" value="#0f6e5f" aria-label="Second gradient colour"></label>
+          </div>
+          <div class="r">
+            <button id="shadowbtn" class="tog ib" title="Shadow behind the object"><svg class="i"><use href="#i-shadow"/></svg>Shadow</button>
+            <label class="swatch" title="Shadow colour">Colour<input id="shadowcolor" type="color" value="#808080" aria-label="Shadow colour"></label>
+          </div>
+        </div>
+        <div class="gl">Effects</div>
+      </div>
+      <div class="grp" role="group" aria-label="WordArt" id="wagrp" hidden>
+        <div class="gb col">
+          <div class="r"><input id="watext" type="text" title="WordArt text" aria-label="WordArt text" placeholder="Text" spellcheck="false"></div>
+          <div class="r">
+            <input id="wafont" list="fontlist" title="WordArt font" aria-label="WordArt font" placeholder="Font" spellcheck="false">
+            <select id="wastyle" title="WordArt shape" aria-label="WordArt shape">
+              <option value="136">Straight</option>
+              <option value="144">Arch up</option>
+              <option value="145">Arch down</option>
+              <option value="156">Wave</option>
+              <option value="168">Slant up</option>
+              <option value="169">Slant down</option>
+            </select>
+          </div>
+        </div>
+        <div class="gl">WordArt</div>
+      </div>
+      <div class="grp" role="group" aria-label="Link">
+        <div class="gb">
+          <div class="menu"><button id="linkbtn" class="big tog" title="Link this object to a web page or e-mail address (Ctrl+click the object to open it)" aria-haspopup="true" aria-expanded="false" aria-controls="linkpop"><svg class="i"><use href="#i-link"/></svg>Link ▾</button>
+            <div class="pop" id="linkpop" hidden>
+              <label class="popfield wide">Address <input id="linkurl" type="text" placeholder="https://" spellcheck="false" autocomplete="off" aria-label="Link address"></label>
+              <button id="linkset" class="primary">Set link</button>
+              <button id="linkopen">Open link…</button>
+              <button id="linkdel">Remove link</button>
+            </div>
+          </div>
+        </div>
+        <div class="gl">Link</div>
       </div>
       <div class="grp" role="group" aria-label="Outline">
         <div class="gb col">
@@ -484,6 +538,18 @@
         </div>
         <div class="gl">Cell</div>
       </div>
+      <div class="grp" role="group" aria-label="Table style">
+        <div class="gb col">
+          <div class="r">
+            <label class="swatch" title="Colour the first row and make its text bold">Header row<input id="tblhead" type="color" value="#1f4e79" aria-label="Header row colour"></label>
+          </div>
+          <div class="r">
+            <label class="swatch" title="Colour every other row below the header">Banded rows<input id="tblband" type="color" value="#e6eef5" aria-label="Banded rows colour"></label>
+            <button id="tblplain" title="Remove the fill from every cell">Plain</button>
+          </div>
+        </div>
+        <div class="gl">Table style</div>
+      </div>
       <div class="grp" role="group" aria-label="Borders">
         <div class="gb col">
           <div class="r">
@@ -535,6 +601,28 @@
           </div>
         </div>
         <div class="gl">Crop (%)</div>
+      </div>
+      <div class="grp" role="group" aria-label="Adjust">
+        <div class="gb col">
+          <div class="r">
+            <label class="fld" title="Brightness, -100 to 100">Brightness<input id="picbri" type="number" min="-100" max="100" step="10" aria-label="Brightness"></label>
+            <label class="fld" title="Contrast, -100 to 100">Contrast<input id="piccon" type="number" min="-100" max="100" step="10" aria-label="Contrast"></label>
+          </div>
+          <div class="r">
+            <button id="picgray" class="tog" title="Show the picture in black and white">Grayscale</button>
+            <select id="picshape" title="Show the picture inside a shape" aria-label="Picture shape">
+              <option value="75">Rectangle</option>
+              <option value="2">Rounded</option>
+              <option value="3">Ellipse</option>
+              <option value="4">Diamond</option>
+              <option value="9">Hexagon</option>
+              <option value="12">Star</option>
+              <option value="74">Heart</option>
+            </select>
+            <button id="picreset" title="Undo the adjustments and the shape">Reset</button>
+          </div>
+        </div>
+        <div class="gl">Adjust</div>
       </div>
     </div>
   </div>
@@ -602,10 +690,18 @@
       <h1>New</h1>
       <p class="lead">Start a blank publication. Choose the page size.</p>
       <div id="newcards" class="cards"></div>
+      <h2>Ready-made designs</h2>
+      <p class="lead">A starting point with placeholder text to replace. Everything in it can be changed.</p>
+      <div id="tplcards" class="cards"></div>
     </section>
     <section id="fp-open" hidden>
       <h1>Open</h1>
       <p class="lead">Open a Microsoft Publisher (.pub) or OpenPub (.opub) file. You can also drop a file onto this window.</p>
+      <div id="assocask" hidden role="region" aria-label="Open Publisher files with OpenPub">
+        <b>Open .pub files with OpenPub?</b>
+        <span>Publisher files aren't set to open with OpenPub on this computer yet.</span>
+        <span class="btns"><button id="assocyes" class="primary">Yes, set it up</button><button id="assocno">Not now</button></span>
+      </div>
       <p><button id="open" class="primary big">Browse…</button></p>
       <h2>Recent</h2>
       <div id="recent" role="list"></div>
@@ -615,6 +711,7 @@
       <p class="lead">Save a copy of this publication in another format. The publication itself isn't changed.</p>
       <div class="rows">
         <button id="pdf" class="rowbtn"><b>PDF</b><span>Every page at its real size, with real text. Best for sharing and printing.</span></button>
+        <button id="png" class="rowbtn"><b>Picture of this page</b><span>The page you are on as a PNG picture (150 dots per inch), for a website, an e-mail or a slide.</span></button>
         <button id="docx" class="rowbtn"><b>Word document</b><span>Editable text boxes, tables and pictures in a .docx file. Word lays text out itself, so line breaks can differ.</span></button>
       </div>
     </section>
