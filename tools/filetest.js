@@ -1,4 +1,5 @@
-// Automated check of the File screen (info, recent files, new publication), run inside a debug build:
+// Automated check of the File screen (info, recent files, new publication) and the status bar
+// (selection details, zoom slider), run inside a debug build:
 //   openpub.exe <file.pub> --eval=tools/filetest.js
 // Prints "[page] OK ..." / "[page] FAIL ..." lines and a SUMMARY line, then quits. Set
 // window.FILETEST_STAY = 'info' | 'new' | 'open' to stop on that pane instead (for screenshots).
@@ -18,6 +19,31 @@ const pane = (name) => document.querySelector(`#filenav [data-pane="${name}"]`).
 (async () => {
   const first = T.doc();
   check('a document is open and the File screen is hidden', !!first && !shown('file'));
+
+  // status bar
+  const sh0 = first.pages[0].shapes[0];
+  if (sh0) {
+    T.select(0, sh0);
+    await wait(200);
+    check('status bar shows the selected object, its position and size', $('selinfo').textContent.length > 2 && /cm .* × .* cm/.test($('selgeom').textContent), $('selgeom').textContent);
+    T.select(0, null);
+    await wait(100);
+    check('and clears when nothing is selected', $('selgeom').textContent === '');
+  }
+  const pct = () => parseInt($('zoompct').textContent, 10);
+  const before = pct();
+  $('zoomslider').value = '75';
+  $('zoomslider').dispatchEvent(new Event('change'));
+  await wait(600);
+  check('the zoom slider zooms', pct() === 267 && T.sheets()[0].el.getBoundingClientRect().width > first.width * 1.333 * 2.6, [before, pct()]);
+  $('zoomout').click();
+  await wait(500);
+  check('zoom out steps down and moves the slider', pct() === 200 && Math.abs(parseFloat($('zoomslider').value) - 68) <= 1, [pct(), $('zoomslider').value]);
+  $('zoom').value = 'fit-width';
+  $('zoom').dispatchEvent(new Event('change'));
+  await wait(600);
+  check('Fit width restores the zoom', pct() === before && before !== 100, [before, pct()]);
+  check('page navigation is in the status bar', !!document.querySelector('#status #pageno') && $('pageno').value === '1');
 
   $('filebtn').click();
   check('File opens on Info', shown('file') && shown('fp-info') && !shown('fp-open'));

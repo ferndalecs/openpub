@@ -38,7 +38,7 @@ body { display: flex; flex-direction: column; font: 13px/1.3 "Segoe UI", system-
 .grow { flex: 1; }
 .toggle { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; margin-left: 6px; }
 #docname { color: var(--muted); max-width: 30vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 6px; }
-body:not(.has-doc) .tabs, body:not(.has-doc) .ribbon { display: none; }
+body:not(.has-doc) .ribbon { display: none; }
 
 /* ---- drop-down menus ------------------------------------------------------------------------ */
 .menu { position: relative; display: inline-flex; }
@@ -56,7 +56,13 @@ body:not(.has-doc) .tabs, body:not(.has-doc) .ribbon { display: none; }
 kbd { font: inherit; color: var(--muted); }
 
 /* ---- ribbon tabs ---------------------------------------------------------------------------- */
-.tabs { display: flex; align-items: flex-end; gap: 2px; padding: 0 10px; height: 30px; }
+.tabs { display: flex; align-items: flex-end; gap: 2px; padding: 0 10px 0 6px; height: 36px; }
+#bar .tabs #filebtn { align-self: center; height: 27px; padding: 0 16px; margin-right: 4px; }
+#bar .tabs .quick { align-self: center; display: inline-flex; gap: 1px; margin-right: 12px; }
+#bar .tabs .quick button { border-color: transparent; background: none; height: 27px; min-width: 28px; padding: 0 5px; font-size: 17px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+#bar .tabs .quick button:hover:not(:disabled) { background: var(--hover); border-color: var(--bar-line); }
+#bar .tabs .quick .i { width: 16px; height: 16px; }
+#bar .tabs #docname { align-self: center; }
 #bar .tabs [role=tab] { border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; background: none; height: 27px; padding: 0 14px; color: var(--muted); font-weight: 500; margin-bottom: -1px; position: relative; }
 #bar .tabs [role=tab]:hover { background: var(--hover); color: var(--ink); }
 #bar .tabs [role=tab][aria-selected=true] { background: var(--ribbon); color: var(--ink); border-color: var(--bar-line); font-weight: 600; z-index: 1; }
@@ -66,7 +72,22 @@ kbd { font: inherit; color: var(--muted); }
 #bar .tabs [role=tab].ctx:not([aria-selected=true]) { background: var(--ctx-soft); }
 #bar .tabs [role=tab].ctx:first-of-type, #t-shape { margin-left: 14px; }
 #bar .tabs [role=tab][hidden] { display: none; }
-#selinfo { color: var(--muted); font-size: 12px; padding: 0 4px 6px; white-space: nowrap; }
+/* ---- status bar: pages, selection, zoom -------------------------------------------------------- */
+#status { flex: none; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; background: var(--bar); border-top: 1px solid var(--bar-line); font-size: 12px; position: relative; z-index: 20; }
+body:not(.has-doc) #status { visibility: hidden; }
+#status button, #status select, #status input[type=text] { font: inherit; color: inherit; height: 22px; border: 1px solid transparent; border-radius: 4px; background: none; padding: 0 6px; }
+#status button { cursor: pointer; min-width: 24px; font-size: 15px; line-height: 1; }
+#status button:hover:not(:disabled), #status select:hover { background: var(--hover); border-color: var(--bar-line); }
+#status button:disabled { opacity: .42; cursor: default; }
+#status button:focus-visible, #status select:focus-visible, #status input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+#status input[type=text] { border-color: var(--bar-line); background: #fff; }
+#status .sep { height: 16px; }
+#status .toggle { margin-left: 0; }
+#status select { border-color: var(--bar-line); background: #fff; }
+#selinfo { color: var(--ink); white-space: nowrap; }
+#selgeom { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#zoomslider { width: 130px; accent-color: var(--accent); margin: 0; }
+#zoompct { min-width: 40px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* ---- ribbon panels -------------------------------------------------------------------------- */
 .ribbon { background: var(--ribbon); border-top: 1px solid var(--bar-line); }
@@ -230,7 +251,7 @@ body.drag #file::after { content: "Drop to open"; position: absolute; inset: 12p
 @media print {
   html, body { height: auto; }
   body { display: block; overflow: visible; background: #fff; }
-  #bar, #thumbs, #notes, #file, #masterbar, .selbox, .band { display: none !important; }
+  #bar, #thumbs, #notes, #file, #status, #masterbar, .selbox, .band { display: none !important; }
   main, #view { display: block; overflow: visible; }
   #pages { display: block; padding: 0; }
   .row { display: block; }

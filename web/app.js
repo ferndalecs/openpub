@@ -94,6 +94,7 @@
     sheets = [];
     if (!doc) return;
     scale = computeScale();
+    updateZoomUi();
     const w = doc.width * PX * scale, h = doc.height * PX * scale;
     observer = new IntersectionObserver((entries) => {
       for (const e of entries) {
@@ -285,6 +286,16 @@
     build();
     if (keepPage) goTo(page);
     $('zoom').value = zoomMode;
+    updateZoomUi();
+  }
+
+  // The slider runs from 10% to 800% on a logarithmic scale (the middle is about 90%).
+  const ZMIN = 0.1, ZMAX = 8;
+  const sliderToScale = (v) => ZMIN * Math.pow(ZMAX / ZMIN, v / 100);
+  const scaleToSlider = (z) => Math.round(100 * Math.log(Math.max(ZMIN, Math.min(ZMAX, z)) / ZMIN) / Math.log(ZMAX / ZMIN));
+  function updateZoomUi() {
+    $('zoompct').textContent = Math.round(scale * 100) + '%';
+    if (document.activeElement !== $('zoomslider')) $('zoomslider').value = scaleToSlider(scale);
   }
 
   function setZoom(mode) {
@@ -677,6 +688,19 @@
     }
     if (masterMode) t = 'Master page' + (t ? ' · ' + t : '');
     $('selinfo').textContent = t;
+    updateSelGeom();
+  }
+  /** Where the selection is and how big, for the status bar. */
+  function updateSelGeom() {
+    let g = '';
+    if (sel && sel.shapes.length) {
+      const cm = (v) => (v / 72 * 2.54).toFixed(2);
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const s of sel.shapes) { x0 = Math.min(x0, s.x); y0 = Math.min(y0, s.y); x1 = Math.max(x1, s.x + s.w); y1 = Math.max(y1, s.y + s.h); }
+      g = `${cm(x0)}, ${cm(y0)} cm  ·  ${cm(x1 - x0)} × ${cm(y1 - y0)} cm`;
+      if (sel.shapes.length === 1 && sel.shape.rotation) g += `  ·  ${Math.round(normDeg(sel.shape.rotation) * 10) / 10}°`;
+    }
+    $('selgeom').textContent = g;
   }
 
   /** Selects one shape; mode 'toggle' adds or removes it from the selection instead. */
@@ -1448,6 +1472,7 @@
   const isHex = (c) => /^#[0-9a-f]{6}$/i.test(c || '');
 
   function syncToolbar() {
+    updateSelGeom();
     const st = currentStyle();
     const active = document.activeElement;
     const setv = (id, v) => { const e = $(id); if (e && e !== active) e.value = v; };
@@ -1604,7 +1629,7 @@
   }
   for (const t of TABS) $('t-' + t).addEventListener('click', () => showTab(t));
   document.querySelector('.tabs').addEventListener('keydown', (e) => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key) || !e.target.matches('[role=tab]')) return;
     const vis = TABS.filter((t) => !$('t-' + t).hidden);
     let i = vis.indexOf(activeTab);
     if (e.key === 'ArrowLeft') i = (i - 1 + vis.length) % vis.length;
@@ -2872,6 +2897,19 @@
   ['crl', 'crt', 'crr', 'crb'].forEach((id, i) => onChange(id, (v) => setCropSide(i, parseFloat(String(v).replace(',', '.')) / 100)));
 
   $('zoom').addEventListener('change', (e) => setZoom(e.target.value));
+  // dragging the slider zooms as it goes (not on every pixel: pages are redrawn)
+  let sliderTimer = 0;
+  const sliderZoom = () => {
+    const z = Math.round(sliderToScale(parseFloat($('zoomslider').value)) * 100) / 100;
+    if (Math.abs(z - scale) > 0.004) setZoom(z);
+  };
+  $('zoomslider').addEventListener('input', () => {
+    $('zoompct').textContent = Math.round(sliderToScale(parseFloat($('zoomslider').value)) * 100) + '%';
+    clearTimeout(sliderTimer);
+    sliderTimer = setTimeout(sliderZoom, 90);
+  });
+  $('zoomslider').addEventListener('change', () => { clearTimeout(sliderTimer); sliderZoom(); $('zoomslider').blur(); });
+  $('zoompct').addEventListener('dblclick', () => setZoom(1));
   // Two pages side by side are only useful when the whole spread is on screen: "Fit width" turns
   // into "Whole page" while the two-page view is on (and back again after)
   let spreadZoomed = false;
@@ -2901,9 +2939,13 @@
   });
 
   // toolbar buttons must not take the focus away from text being edited
-  $('bar').addEventListener('mousedown', (e) => {
-    if (e.target.closest('button')) e.preventDefault();
-  });
+  for (const id of ['bar', 'status']) {
+    $(id).addEventListener('mousedown', (e) => {
+      if (e.target.closest('button')) e.preventDefault();
+    });
+  }
+  // Enter in the page number box goes to the page and back to the publication
+  $('pageno').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.target.blur(); view.focus({ preventScroll: true }); } });
 
   // drop-down menus
   for (const [btn, menu] of [['bulmenu', 'bulpop'], ['nummenu', 'numpop'], ['spbtn', 'sppop'], ['addtable', 'tblpop']]) {

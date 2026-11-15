@@ -61,38 +61,17 @@
     <symbol id="i-bin" viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="13" height="13" stroke-dasharray="1.4 1.4" opacity=".5"/><path d="M8 1.5v13M1.5 8h13"/></symbol>
     <symbol id="i-bnone" viewBox="0 0 16 16"><g stroke-dasharray="1.4 1.4" opacity=".5"><rect x="1.5" y="1.5" width="13" height="13"/><path d="M8 1.5v13M1.5 8h13"/></g></symbol>
     <symbol id="i-swap" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="9" height="8" rx="1"/><path d="M13.5 6v7.5H6M11.8 11.7l1.7 1.8 1.6-1.8"/></symbol>
+    <symbol id="i-save" viewBox="0 0 16 16"><path d="M2.5 2.5h8.6l2.4 2.4v8.6h-11z"/><path d="M5 2.5v3.6h5.2V2.5M4.6 13.5V9.2h6.8v4.3"/></symbol>
   </defs>
 </svg>
 <header id="bar">
-  <div class="row1">
-    <button id="filebtn" class="primary" title="New, open, save, export, print and information about this publication" aria-haspopup="dialog">File</button>
-    <button id="save" title="Save as an OpenPub document (Ctrl+S)" disabled>Save</button>
-    <span class="sep"></span>
-    <button id="undo" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>↶</button>
-    <button id="redo" title="Redo (Ctrl+Y)" aria-label="Redo" disabled>↷</button>
-    <span class="sep"></span>
-    <button id="prev" title="Previous page (Page Up)" aria-label="Previous page">‹</button>
-    <span id="pagebox"><input id="pageno" type="text" inputmode="numeric" aria-label="Page number" value="–"> <span id="pagecount">of –</span></span>
-    <button id="next" title="Next page (Page Down)" aria-label="Next page">›</button>
-    <span class="sep"></span>
-    <button id="zoomout" title="Zoom out (Ctrl+-)" aria-label="Zoom out">−</button>
-    <select id="zoom" title="Zoom" aria-label="Zoom">
-      <option value="fit-width">Fit width</option>
-      <option value="fit-page">Whole page</option>
-      <option value="0.5">50%</option>
-      <option value="0.75">75%</option>
-      <option value="1">100%</option>
-      <option value="1.5">150%</option>
-      <option value="2">200%</option>
-      <option value="4">400%</option>
-    </select>
-    <button id="zoomin" title="Zoom in (Ctrl++)" aria-label="Zoom in">+</button>
-    <label class="toggle" title="Show facing pages side by side"><input id="spread" type="checkbox"> Two pages</label>
-    <span class="grow"></span>
-    <span id="docname"></span>
-  </div>
-
   <div class="tabs" role="tablist" aria-label="Ribbon">
+    <button id="filebtn" class="primary" title="New, open, save, export, print and information about this publication" aria-haspopup="dialog">File</button>
+    <span class="quick">
+      <button id="save" title="Save as an OpenPub document (Ctrl+S)" aria-label="Save" disabled><svg class="i"><use href="#i-save"/></svg></button>
+      <button id="undo" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>↶</button>
+      <button id="redo" title="Redo (Ctrl+Y)" aria-label="Redo" disabled>↷</button>
+    </span>
     <button role="tab" id="t-home" aria-controls="p-home" aria-selected="true">Home</button>
     <button role="tab" id="t-insert" aria-controls="p-insert" aria-selected="false" tabindex="-1">Insert</button>
     <button role="tab" id="t-page" aria-controls="p-page" aria-selected="false" tabindex="-1">Page</button>
@@ -101,7 +80,7 @@
     <button role="tab" id="t-table" class="ctx" aria-controls="p-table" aria-selected="false" tabindex="-1" hidden>Table</button>
     <button role="tab" id="t-picture" class="ctx" aria-controls="p-picture" aria-selected="false" tabindex="-1" hidden>Picture</button>
     <span class="grow"></span>
-    <span id="selinfo" role="status"></span>
+    <span id="docname"></span>
   </div>
 
   <div class="ribbon">
@@ -493,6 +472,31 @@
     <div id="pages"></div>
   </section>
 </main>
+<footer id="status">
+  <button id="prev" title="Previous page (Page Up)" aria-label="Previous page">‹</button>
+  <span id="pagebox">Page <input id="pageno" type="text" inputmode="numeric" aria-label="Page number" value="–"> <span id="pagecount">of –</span></span>
+  <button id="next" title="Next page (Page Down)" aria-label="Next page">›</button>
+  <span class="sep"></span>
+  <span id="selinfo" role="status"></span>
+  <span id="selgeom"></span>
+  <span class="grow"></span>
+  <label class="toggle" title="Show facing pages side by side"><input id="spread" type="checkbox"> Two pages</label>
+  <span class="sep"></span>
+  <select id="zoom" title="Zoom" aria-label="Zoom">
+    <option value="fit-width">Fit width</option>
+    <option value="fit-page">Whole page</option>
+    <option value="0.5">50%</option>
+    <option value="0.75">75%</option>
+    <option value="1">100%</option>
+    <option value="1.5">150%</option>
+    <option value="2">200%</option>
+    <option value="4">400%</option>
+  </select>
+  <button id="zoomout" title="Zoom out (Ctrl+-)" aria-label="Zoom out">−</button>
+  <input id="zoomslider" type="range" min="0" max="100" step="1" value="50" title="Zoom" aria-label="Zoom level">
+  <button id="zoomin" title="Zoom in (Ctrl++)" aria-label="Zoom in">+</button>
+  <span id="zoompct" title="Current zoom">100%</span>
+</footer>
 <!-- The File screen: covers the window; also the start screen when nothing is open -->
 <div id="file" role="dialog" aria-modal="true" aria-label="File" hidden>
   <nav id="filenav" aria-label="File">

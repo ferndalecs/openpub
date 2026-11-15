@@ -41,6 +41,8 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
 * **File screen** (the File button; also the start screen): New (a blank publication in A4,
   A5, A3 or Letter - Ctrl+N), Open with the list of recent files, Save, Save As, Export, Print,
   and Info (location, pages, page size, and which of the publication's fonts are installed).
+* **Status bar**: page navigation, the selected object with its position and size, the
+  two-page view and a zoom slider (10% to 800%).
 * **Open** `.pub` (Publisher 2003 and later) and `.opub` files: File > Open, Ctrl+O, drag and
   drop, or a path on the command line.
 * **Edit** (ribbon with Home / Insert / Page / Shape / Table / Picture tabs):
@@ -111,7 +113,7 @@ samples and their slugs.
 
 The editor has automated checks that run inside a debug build:
 `target/debug/openpub.exe samples/year7-booklet.pub --eval=tools/edittest.js` (and
-`tools/apptest.js`, `tools/filetest.js` for the File screen); results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the
+`tools/apptest.js`, `tools/filetest.js` for the File screen and status bar); results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the
 feature samples to Word, opens each in Word and compares them with Publisher's pages.
 
 ## Known gaps
