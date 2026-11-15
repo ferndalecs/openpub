@@ -142,8 +142,26 @@
     // for finding the lines again after layout (snapWraps): the CSS baseline below the top of
     // the letters' box, and the line this run asks for (height, baseline below its top)
     span.opLine = { base: bm.asc * run.size - shift, lh, top: cssBase };
+    // character spacing: tracking scales every character's width (CSS adds a fixed amount per
+    // character, so use the average width of this run's characters); kerning adds points
+    let ls = run.kerning || 0;
+    if (run.tracking && run.tracking !== 1 && run.text) {
+      const chars = [...run.text].length;
+      // (a hair tighter: Publisher's own character widths are rounded, and lines it just fits
+      // must fit here too)
+      if (chars) ls += (run.tracking - 1) * textWidth(run, run.text) / chars - 0.03;
+    }
+    if (ls) s.letterSpacing = pt(ls);
     if (run.script === 1) { s.verticalAlign = 'super'; s.fontSize = pt(run.size * 0.65); span.opLine = null; }
     if (run.script === 2) { s.verticalAlign = 'sub'; s.fontSize = pt(run.size * 0.65); span.opLine = null; }
+  }
+
+  /** Width of text in a run's font, in points. */
+  let widthCanvas = null;
+  function textWidth(run, text) {
+    if (!widthCanvas) widthCanvas = document.createElement('canvas').getContext('2d');
+    widthCanvas.font = `${run.italic ? 'italic ' : ''}${run.bold ? 'bold ' : ''}100px ${fontFamily(run.font)}`;
+    return widthCanvas.measureText(symbolText(text, run.font)).width * run.size / 100;
   }
 
   // Symbol-encoded fonts keep their glyphs in the private use area.
@@ -165,7 +183,7 @@
 
   // Editing support: formatting is kept on the elements so edited text can be read back.
   function runKey(run) {
-    return JSON.stringify({ font: run.font, size: run.size, bold: !!run.bold, italic: !!run.italic, underline: !!run.underline, color: run.color, script: run.script || 0 });
+    return JSON.stringify({ font: run.font, size: run.size, bold: !!run.bold, italic: !!run.italic, underline: !!run.underline, color: run.color, script: run.script || 0, tracking: run.tracking || 0, kerning: run.kerning || 0 });
   }
   function paraKey(p) {
     const o = Object.assign({}, p);

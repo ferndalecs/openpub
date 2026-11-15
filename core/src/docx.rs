@@ -1616,6 +1616,12 @@ fn rpr(r: &Run, hide: bool) -> String {
     if r.underline {
         o.push_str("<w:u w:val=\"single\"/>");
     }
+    // character spacing: Word has a fixed amount per character (twentieths of a point); tracking
+    // scales each character's width, about half the font size on average
+    let extra = r.kerning + if r.tracking > 0.0 { (r.tracking - 1.0) * 0.5 * r.size } else { 0.0 };
+    if extra.abs() >= 0.05 {
+        let _ = write!(o, "<w:spacing w:val=\"{}\"/>", ((extra * 20.0).round() as i64).clamp(-31680, 31680));
+    }
     match r.script {
         1 => o.push_str("<w:vertAlign w:val=\"superscript\"/>"),
         2 => o.push_str("<w:vertAlign w:val=\"subscript\"/>"),

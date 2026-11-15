@@ -258,6 +258,11 @@ impl TextCtx<'_> {
                     underline: rp.underline.unwrap_or(false),
                     color: self.color(rp.color),
                     script: rp.script.unwrap_or(0),
+                    tracking: match rp.tracking {
+                        Some(t) if t != 1000 && (100..=6000).contains(&t) => t as f64 / 1000.0,
+                        _ => 0.0,
+                    },
+                    kerning: rp.kerning.map(|k| k as f64 / EMU_PER_PT).filter(|k| k.abs() < 200.0).unwrap_or(0.0),
                     field: if rp.field == Some(5) { Some("page".into()) } else { None },
                     object: None,
                     inline,
@@ -265,7 +270,7 @@ impl TextCtx<'_> {
                 // the paragraph mark keeps its formatting as an empty run, so that empty
                 // paragraphs get the right height
                 let same_format = |a: &Run, b: &Run| {
-                    a.inline.is_none() && b.inline.is_none() && a.font == b.font && a.size == b.size && a.bold == b.bold && a.italic == b.italic && a.underline == b.underline && a.color == b.color && a.script == b.script && a.field == b.field
+                    a.inline.is_none() && b.inline.is_none() && a.font == b.font && a.size == b.size && a.bold == b.bold && a.italic == b.italic && a.underline == b.underline && a.color == b.color && a.script == b.script && a.tracking == b.tracking && a.kerning == b.kerning && a.field == b.field
                 };
                 match para.runs.last_mut() {
                     Some(last) if !run.text.is_empty() && same_format(last, &run) => last.text.push_str(&run.text),

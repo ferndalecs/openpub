@@ -321,6 +321,13 @@ pub struct Run {
     /// 1 superscript, 2 subscript
     #[serde(skip_serializing_if = "is_zero_u8")]
     pub script: u8,
+    /// Character spacing as a factor of each character's width (Publisher's "tracking":
+    /// 0.875 = tight, 1.25 = very loose); 0 = normal.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub tracking: f64,
+    /// Extra space after each character, in points (Publisher's "kerning": expand or condense).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub kerning: f64,
     /// "page" for a page-number field
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field: Option<String>,
