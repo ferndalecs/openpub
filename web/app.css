@@ -82,6 +82,8 @@ kbd { font: inherit; color: var(--muted); }
 #assocask span { color: var(--ink); }
 #assocask .btns { margin-left: auto; display: inline-flex; gap: 8px; }
 #assocask button { height: 30px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--accent); background: #fff; }
+#assocask button.primary { background: var(--accent); }
+#assocask button.primary:hover { background: #0c5a4e; }
 .card .mini.tpl { position: relative; overflow: hidden; }
 .card .mini.tpl i { position: absolute; display: block; }
 
