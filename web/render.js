@@ -420,10 +420,12 @@
       if (x1 - x0 > 0.5 && y1 - y0 > 0.5) rects.push({ x0, x1, y0, y1 });
     }
     if (!rects.length) return;
-    // Text can pass on both sides of a shape when its paragraphs start at the left (centred and
-    // right-aligned lines would need centring in each gap) and the frame has one column.
+    // Text can pass on both sides of a shape when its paragraphs are all aligned the same way
+    // (centred and right-aligned lines are centred or right-aligned in each gap: `align` 0.5, 1).
     // (a table or picture in the text can't be split around a shape: such frames keep to one gap)
-    const twoSided = !(body.columns > 1) && body.paras.every((p) => (p.align === 'left' || p.align === 'justify' || !p.align) && !p.runs.some((r) => r.object));
+    const kinds = new Set(body.paras.map((p) => (p.align === 'center' ? 0.5 : p.align === 'right' ? 1 : 0)));
+    const twoSided = kinds.size === 1 && body.paras.every((p) => !p.runs.some((r) => r.object));
+    const align = twoSided ? [...kinds][0] : 0;
     const cols = columnsOf(body, frame);
     // An unbroken run longer than a line (rows of underscores to write on) is broken wherever a
     // line ends. Publisher doesn't squeeze pieces of it into the slivers beside a shape: for
@@ -444,11 +446,11 @@
         }
       }
       if (!strip.length) return;
-      flow.opWrap = { rects: strip, cw: cols.w, twoSided: false, cols: cols.n, minGap };
+      flow.opWrap = { rects: strip, cw: cols.w, twoSided, align, cols: cols.n, minGap };
       buildFloats(flow);
       return;
     }
-    flow.opWrap = { rects, cw, twoSided, minGap };
+    flow.opWrap = { rects, cw, twoSided, align, minGap };
     buildFloats(flow);
   }
 
@@ -475,19 +477,27 @@
    */
   function fillHoles(flow, k) {
     // start afresh: take the spacers out and join the pieces of text they split
-    for (const g of [...flow.querySelectorAll('.op-gap')]) {
-      const before = g.previousSibling, after = g.nextSibling;
-      g.remove();
-      if (before && after && after.opTail && before.nodeType === 1 && before.firstChild && before.firstChild.nodeType === 3 && after.firstChild && after.firstChild.nodeType === 3) {
-        before.firstChild.appendData(after.firstChild.data);
-        after.remove();
+    for (const g of [...flow.querySelectorAll('.op-gap')]) g.remove();
+    for (const s of [...flow.querySelectorAll('span')]) {
+      if (s.opSpaced) { s.style.wordSpacing = ''; s.opSpaced = false; }
+      const before = s.previousSibling;
+      if (s.opTail && before && before.nodeType === 1 && before.firstChild && before.firstChild.nodeType === 3 && s.firstChild && s.firstChild.nodeType === 3) {
+        before.firstChild.appendData(s.firstChild.data);
+        s.remove();
       }
     }
     const W = flow.opWrap;
     if (!W || !W.holes || !W.holes.length) return false;
+    // Justified text is set out as left-aligned text first (stretched lines can't be measured
+    // for what fits beside a shape); justifyParts then spreads each part of a line over its gap.
+    const justified = W.align ? [] : [...flow.children].filter((p) => p.classList.contains('op-para') && p.style.textAlign === 'justify');
+    for (const p of justified) p.style.textAlign = 'left';
     const sh = W.shift || 0;
     const tried = new Map();
     let cursor = -Infinity, did = false;
+    // in a frame with columns the shapes are placed along one tall strip (addWrap): a piece of
+    // text in column c is c columns to the left and c column-heights further down the strip
+    const cols = flow.opCols;
     for (let guard = 0; guard < 600; guard++) {
       const fr = flow.getBoundingClientRect();
       // the lines, with the pieces of text on each
@@ -499,12 +509,14 @@
           if (!l || span.classList.contains('op-gap')) continue;
           for (const r of span.getClientRects()) {
             if (!r.height) continue;
-            const base = (r.top - fr.top) / k + l.base;
+            const c = cols ? Math.max(0, Math.min(cols.n - 1, Math.floor(((r.left - fr.left) / k + 0.5) / (cols.w + cols.gap)))) : 0;
+            const left = fr.left + (cols ? c * (cols.w + cols.gap) * k : 0);
+            const base = (r.top - fr.top) / k + l.base + (cols ? c * cols.h : 0);
             let line = lines.find((x) => Math.abs(x.base - base) < 0.6);
-            if (!line) lines.push((line = { base, above: 0, below: 0, parts: [] }));
+            if (!line) lines.push((line = { base, above: 0, below: 0, parts: [], left }));
             line.above = Math.max(line.above, l.top);
             line.below = Math.max(line.below, l.lh - l.top);
-            line.parts.push({ span, x0: (r.left - fr.left) / k, x1: (r.right - fr.left) / k, top: r.top, bottom: r.bottom });
+            line.parts.push({ span, x0: (r.left - left) / k, x1: (r.right - left) / k, top: r.top, bottom: r.bottom });
           }
         }
       }
@@ -521,20 +533,111 @@
           // (several slabs give one shape several holes: take their widest extent on this line)
           const x0 = Math.min(...inWay.filter((q) => q.x0 < h.x1 && q.x1 > h.x0).map((q) => q.x0));
           const x1 = Math.max(...inWay.filter((q) => q.x0 < h.x1 && q.x1 > h.x0).map((q) => q.x1));
-          const crossing = line.parts.filter((q) => q.x1 > x0 + 0.5 && q.x0 < x1 - 0.5 && q.x1 - q.x0 > 0.01).sort((a, b) => a.x0 - b.x0)[0];
-          if (!crossing) continue;
           const key = Math.round(top * 4) + ':' + Math.round(x0);
           const n = tried.get(key) || 0;
+          if (W.align) {
+            // centred or right-aligned: every line beside the shape is set out once, whether or
+            // not it reaches across
+            if (n >= 1) continue;
+            tried.set(key, 1);
+            if (placeAligned(line, x0, x1, k, h.leftW, h.rightW, W.align)) { fixed = true; did = true; cursor = top; }
+            break;
+          }
+          const crossing = line.parts.filter((q) => q.x1 > x0 + 0.5 && q.x0 < x1 - 0.5 && q.x1 - q.x0 > 0.01).sort((a, b) => a.x0 - b.x0)[0];
+          if (!crossing) continue;
           if (n >= 2) continue;
           tried.set(key, n + 1);
-          if (placeGap(crossing, x0, x1, fr, k, h.leftW, h.rightW)) { fixed = true; did = true; cursor = top; }
+          if (placeGap(crossing, x0, x1, { left: line.left }, k, h.leftW, h.rightW)) { fixed = true; did = true; cursor = top; }
           break;
         }
         if (fixed) break;
       }
       if (!fixed) break;
     }
+    if (justified.length) {
+      for (const g of [...flow.querySelectorAll('span.op-gap')]) if (g.opSeg && justified.includes(g.parentNode)) justifyParts(g, k);
+      for (const p of justified) p.style.textAlign = 'justify';
+    }
     return did;
+  }
+
+  /**
+   * Justified text beside a shape: Publisher spreads the words before the shape across the gap
+   * on its left and the words after it across the gap on its right. `gap` is the spacer over the
+   * shape; the pieces of text on its line get the word spacing that fills their gaps.
+   */
+  function justifyParts(gap, k) {
+    const seg = gap.opSeg;
+    const g = gap.getClientRects()[0];
+    if (!g) return;
+    const onLine = (r) => r.width > 0 && r.bottom > g.top + 1 && r.top < g.bottom - 1;
+    const rng = document.createRange();
+    const boxOf = (tn, i) => {
+      rng.setStart(tn, i);
+      rng.setEnd(tn, i + 1);
+      for (const r of rng.getClientRects()) if (onLine(r)) return r;
+      return null;
+    };
+    const plain = (s) => s && s.nodeType === 1 && s.tagName === 'SPAN' && !s.classList.contains('op-wrap') && !s.classList.contains('op-tab') && !(s.dataset && s.dataset.field) && s.firstChild && s.firstChild.nodeType === 3 && s.firstChild === s.lastChild;
+    // the spans of text on this line on one side of the spacer, cut off from their other lines
+    const side = (dir) => {
+      const out = [];
+      let s = dir < 0 ? gap.previousSibling : gap.nextSibling;
+      while (plain(s)) {
+        const tn = s.firstChild, n = tn.data.length;
+        let a = -1, b = -1;
+        for (let i = 0; i < n; i++) if (boxOf(tn, i)) { if (a < 0) a = i; b = i; }
+        if (a < 0) break;
+        // (blank characters at a line's end have no box: they stay with the line)
+        let end = b + 1;
+        while (end < n && /\s/.test(tn.data[end])) end++;
+        const whole = dir < 0 ? a === 0 || !/\S/.test(tn.data.slice(0, a)) : end >= n;
+        let piece = s;
+        if (!whole) {
+          if (dir < 0) piece = splitSpan(s, a);
+          else splitSpan(s, end);
+        }
+        out.push(piece);
+        if (!whole) return { spans: out, more: true };
+        s = dir < 0 ? piece.previousSibling : piece.nextSibling;
+      }
+      // more of the paragraph beyond this line?
+      let more = false;
+      for (let q = s; q; q = dir < 0 ? q.previousSibling : q.nextSibling) if (q.nodeType === 1 && q.tagName !== 'BR' && !q.classList.contains('op-wrap')) { more = true; break; }
+      if (s && s.nodeType === 1 && s.tagName === 'BR') more = false;
+      return { spans: out, more };
+    };
+    const spread = (spans, limit) => {
+      // the ink's right edge and the spaces between the words
+      let right = -Infinity, spaces = 0, pending = 0, seen = false;
+      const order = spans.slice().sort((p, q) => (p.compareDocumentPosition(q) & 4 ? -1 : 1));
+      for (const s of order) {
+        const tn = s.firstChild;
+        for (let i = 0; i < tn.data.length; i++) {
+          const ch = tn.data[i];
+          if (ch === ' ' || ch === '\u00A0') { if (seen) pending++; continue; }
+          const r = boxOf(tn, i);
+          if (!r) continue;
+          seen = true;
+          spaces += pending;
+          pending = 0;
+          right = Math.max(right, (r.right - seg.left) / k);
+        }
+      }
+      const slack = limit - right - 0.3;
+      if (!(spaces > 0) || !(slack > 0.05)) return;
+      for (const s of order) { s.style.wordSpacing = pt(slack / spaces); s.opSpaced = true; }
+    };
+    const leftSide = side(-1), rightSide = side(1);
+    if (leftSide.spans.length) spread(leftSide.spans, seg.x0);
+    // the word after the spacer stays where it is
+    const first = rightSide.spans[0];
+    if (first) {
+      const r = boxOf(first.firstChild, 0);
+      if (r) gap.style.paddingLeft = pt(Math.max(0, parseFloat(gap.style.paddingLeft) + seg.x1 - (r.left - seg.left) / k));
+    }
+    // (a paragraph's last line isn't spread)
+    if (rightSide.spans.length && rightSide.more) spread(rightSide.spans, seg.R);
   }
 
   /** Puts a spacer before the word that reaches across x0 on this piece of a line, so that the
@@ -609,7 +712,17 @@
       }
     }
     if (startX >= x1 - 0.3) return false;
+    // the word already follows a spacer on this line (justified text moved it back): widen that
+    const prev = at === 0 ? span.previousSibling : null;
+    if (prev && prev.nodeType === 1 && prev.tagName === 'SPAN' && prev.classList.contains('op-gap')) {
+      const g = prev.getClientRects()[0];
+      if (g && g.bottom > part.top + 1 && g.top < part.bottom - 1) {
+        prev.style.paddingLeft = pt(Math.max(0, parseFloat(prev.style.paddingLeft) + x1 - startX));
+        return true;
+      }
+    }
     const gap = mkGap(x1 - startX);
+    gap.opSeg = { x0, x1, R: x1 + rightW, left: fr.left };
     let moved = span;
     if (at > 0) {
       // split the piece of text in two: the same formatting, the spacer between them
@@ -637,6 +750,135 @@
       const off = x1 - (r.left - fr.left) / k;
       if (Math.abs(off) < 0.15) break;
       gap.style.paddingLeft = pt(Math.max(0, parseFloat(gap.style.paddingLeft) + off));
+    }
+    return true;
+  }
+
+  /** Splits a span of text before character `at`: returns the new span holding the rest (the
+   * span itself when there is nothing to split off). */
+  function splitSpan(span, at) {
+    const tn = span.firstChild;
+    if (!(at > 0) || !tn || tn.nodeType !== 3 || at >= tn.data.length) return span;
+    const tail = span.cloneNode(false);
+    tail.appendChild(tn.splitText(at));
+    tail.opLine = span.opLine;
+    tail.opTail = true;
+    tail.opBelow = span.opBelow;
+    if (span.opOff != null) tail.opOff = span.opOff + [...tn.data].filter((ch) => ch !== '\u00AD').length;
+    span.after(tail);
+    return tail;
+  }
+
+  /**
+   * Centred or right-aligned text beside a shape (`a` 0.5 or 1): the words that fit in the gap on
+   * the left stay there, the line carries on in the gap on the right, and each part is centred
+   * (or right-aligned) in its own gap, as in Publisher. Done with two spacers: one where the
+   * line jumps the shape, one at its start.
+   */
+  function placeAligned(line, x0, x1, k, leftW, rightW, a) {
+    const parts = line.parts.filter((q) => q.x1 - q.x0 > 0.01).sort((p, q) => p.x0 - q.x0);
+    if (!parts.length) return false;
+    const left = line.left;
+    const start = parts[0].x0, X = start + leftW;
+    const rng = document.createRange();
+    const boxOf = (tn, i, part) => {
+      rng.setStart(tn, i);
+      rng.setEnd(tn, i + 1);
+      for (const r of rng.getClientRects()) if (r.bottom > part.top + 1 && r.top < part.bottom - 1 && r.width > 0) return r;
+      return null;
+    };
+    const textOf = (span) => (span.firstChild && span.firstChild.nodeType === 3 && !span.classList.contains('op-tab') && !(span.dataset && span.dataset.field) ? span.firstChild : null);
+    // where the line starts, and the first word that doesn't fit before the shape
+    let head = null, cut = null, splitX = null, sw = 0, lastSeen = null;
+    for (const part of parts) {
+      const tn = textOf(part.span);
+      if (!tn) {
+        if (!head) head = { span: part.span, at: 0 };
+        if (part.x1 > X + 0.3) { cut = { span: part.span, at: 0 }; splitX = part.x0; break; }
+        lastSeen = { span: part.span, end: null };
+        continue;
+      }
+      const text = tn.data;
+      let first = -1, c = -1, last = -1;
+      for (let i = 0; i < text.length; i++) {
+        const r = boxOf(tn, i, part);
+        if (!r) continue;
+        if (first < 0) first = i;
+        last = i;
+        if ((r.right - left) / k > X + 0.3) { c = i; break; }
+      }
+      if (first < 0) continue;
+      if (!head) head = { span: part.span, at: first };
+      if (c >= 0) {
+        let j = c;
+        while (j > first && !/\s/.test(text[j - 1])) j--;
+        cut = { span: part.span, at: j };
+        const r = boxOf(tn, j, part);
+        splitX = r ? (r.left - left) / k : part.x0;
+        if (j > first && /\s/.test(text[j - 1])) { const s = boxOf(tn, j - 1, part); if (s) sw = s.width / k; }
+        break;
+      }
+      lastSeen = { span: part.span, end: last + 1, text };
+    }
+    if (!head) return false;
+    if (!cut) {
+      // the whole line fits before the shape: the right-hand part starts with the next line
+      splitX = Math.max(...parts.map((q) => q.x1));
+      if (lastSeen && lastSeen.end != null) {
+        let e = lastSeen.end;
+        while (e < lastSeen.text.length && /\s/.test(lastSeen.text[e])) e++;
+        if (e < lastSeen.text.length) cut = { span: lastSeen.span, at: e };
+      }
+      if (!cut && lastSeen) {
+        let nx = lastSeen.span.nextSibling;
+        while (nx && nx.nodeType === 1 && nx.classList.contains('op-wrap')) nx = nx.nextSibling;
+        if (nx && nx.nodeType === 1 && nx.tagName === 'SPAN') cut = { span: nx, at: 0 };
+      }
+    }
+    const mk = (ref, w) => {
+      const g = ref.cloneNode(false);
+      g.className = 'op-wrap op-gap';
+      g.removeAttribute('data-r');
+      g.removeAttribute('data-field');
+      g.contentEditable = 'false';
+      g.style.letterSpacing = '0';
+      g.style.textDecoration = 'none';
+      g.style.background = 'none';
+      // (a word joiner: an empty box could be left at the end of the line above)
+      g.textContent = '\u2060';
+      size(g, w);
+      return g;
+    };
+    const size = (g, w) => { g.style.paddingLeft = pt(Math.max(0, w)); g.style.marginLeft = w < 0 ? pt(w) : ''; };
+    const hole = x1 - x0;
+    const lw = Math.max(0, splitX - start), ls = Math.max(0, leftW - lw);
+    const sameSpot = cut && cut.span === head.span && cut.at === head.at;
+    // the spacer over the shape: first as wide as keeps the right-hand part to its gap
+    const mid = mk(head.span, hole + ls);
+    let moved = null;
+    if (cut) {
+      moved = splitSpan(cut.span, cut.at);
+      moved.before(mid);
+      moved.style.overflowWrap = 'normal';
+    } else {
+      parts[parts.length - 1].span.after(mid);
+    }
+    // how much of the right-hand gap the words there take up
+    let rw = 0;
+    const g = mid.getClientRects()[0];
+    if (g && moved) {
+      rng.setStartBefore(moved);
+      rng.setEndAfter(moved.parentNode.lastChild);
+      for (const r of rng.getClientRects()) {
+        if (r.width > 0 && r.top < g.bottom - 1 && r.bottom > g.top + 1 && r.left >= g.right - 0.5) rw = Math.max(rw, (r.right - g.right) / k);
+      }
+    }
+    const rs = Math.max(0, rightW - rw);
+    size(mid, hole + (1 - a) * ls + a * rs - a * sw);
+    const lead = a * (ls - rs + sw);
+    if (Math.abs(lead) > 0.1) {
+      const at = sameSpot ? mid : splitSpan(head.span, head.at);
+      at.before(mk(head.span, lead));
     }
     return true;
   }
@@ -674,7 +916,7 @@
       // it between the first and the last; fillHoles makes each line skip the shapes in between)
       const narrow = Math.max(MIN_GAP, flow.opWrap.minGap || 0);
       const usable = xs && flow.opWrap.twoSided ? xs.filter((g) => g[1] - g[0] >= narrow) : null;
-      if (usable && usable.length >= 2) {
+      if (usable && (flow.opWrap.align ? usable.length === 2 : usable.length >= 2)) {
         gap = [usable[0][0], usable[usable.length - 1][1]];
         for (let n = 0; n + 1 < usable.length; n++) {
           const h = { x0: usable[n][1], x1: usable[n + 1][0], y0: a, y1: b, leftW: usable[n][1] - usable[n][0], rightW: usable[n + 1][1] - usable[n + 1][0] };
@@ -1212,13 +1454,44 @@
     let area = geo.text;
     if (area && shape.flip_h) area = [shape.w - area[2], area[1], shape.w - area[0], area[3]];
     if (area && shape.flip_v) area = [area[0], shape.h - area[3], area[2], shape.h - area[1]];
+    if (shape.border_art && shape.text) {
+      // text keeps inside a picture border
+      const b = Math.min(shape.border_art.size, shape.w / 3, shape.h / 3);
+      const a = area || [0, 0, shape.w, shape.h];
+      area = [Math.max(a[0], b), Math.max(a[1], b), Math.min(a[2], shape.w - b), Math.min(a[3], shape.h - b)];
+    }
     if (shape.text) d.appendChild(renderTextBody((ctx.chains && ctx.chains.get(shape)) || shape.text, ctx, shape, area));
     if (shape.line) {
       const fg = mkSvg();
       drawPaths(fg, shape, geo, 'stroke');
       d.appendChild(fg);
     }
+    if (shape.border_art) d.appendChild(renderBorderArt(shape, ctx));
     parent.appendChild(d);
+  }
+
+  /** A picture border: square tiles at the corners and, evenly spaced, along the edges. */
+  function renderBorderArt(shape, ctx) {
+    const box = el('div', 'op-borderart');
+    box.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none';
+    const b = shape.border_art, t = b.tiles || [];
+    const size = Math.min(b.size, shape.w / 2, shape.h / 2);
+    if (!(size >= 1) || t.length !== 8 || t.some((i) => !ctx.images[i])) return box;
+    // (Publisher fits the nearest whole number of tiles, squeezing or stretching them a little)
+    const nx = Math.min(400, Math.max(2, Math.round(shape.w / size))), ny = Math.min(400, Math.max(2, Math.round(shape.h / size)));
+    const put = (tile, x, y, w, h) => {
+      const img = el('img');
+      img.src = ctx.imageUrl(t[tile]);
+      img.draggable = false;
+      img.style.cssText = `position:absolute;left:${pt(x)};top:${pt(y)};width:${pt(w || size)};height:${pt(h || size)}`;
+      box.appendChild(img);
+    };
+    const right = shape.w - size, bottom = shape.h - size;
+    const ex = (shape.w - 2 * size) / Math.max(1, nx - 2), ey = (shape.h - 2 * size) / Math.max(1, ny - 2);
+    for (let i = 0; i < nx - 2; i++) { put(1, size + i * ex, 0, ex + 0.05); put(5, size + i * ex, bottom, ex + 0.05); }
+    for (let j = 0; j < ny - 2; j++) { put(7, 0, size + j * ey, 0, ey + 0.05); put(3, right, size + j * ey, 0, ey + 0.05); }
+    put(0, 0, 0); put(2, right, 0); put(4, right, bottom); put(6, 0, bottom);
+    return box;
   }
 
   // ---- WordArt -----------------------------------------------------------------------------
@@ -1266,6 +1539,33 @@
     const widths = lines.map((l) => m.width(l) * size);
     const block = Math.max(1, ...widths);
     const sx = wa.stretch === false ? Math.min(1, W / block) : W / block;
+    if (wa.vertical) {
+      // stacked letters: along the shape's length, each turned a quarter turn back (the shape
+      // itself is turned a quarter turn, so they stand upright) and stretched to its cell
+      const band = H / n, ink = m.inkAsc + m.inkDesc * 0.5;
+      lines.forEach((line, i) => {
+        const chars = [...line];
+        if (!chars.length) return;
+        const cell = W / chars.length;
+        const widest = Math.max(0.2, ...chars.map((ch) => m.width(ch)));
+        chars.forEach((ch, j) => {
+          if (!ch.trim()) return;
+          const t = svgEl('text', { 'text-anchor': 'middle', x: 0, y: (m.inkAsc - ink / 2) * 100, 'font-size': 100 });
+          t.setAttribute('font-family', fontFamily(wa.font));
+          if (wa.bold) t.setAttribute('font-weight', 'bold');
+          if (wa.italic) t.setAttribute('font-style', 'italic');
+          t.setAttribute('transform', `translate(${(j + 0.5) * cell} ${(i + 0.5) * band}) rotate(-90) scale(${band * 0.96 / (widest * 100)} ${cell * 0.9 / (ink * 100)})`);
+          t.textContent = ch;
+          if (shape.fill) paint(t, { fill: shape.fill, line: shape.line }, svg);
+          else paint(t, { line: shape.line }, svg);
+          if (!shape.fill && !shape.line) t.setAttribute('fill', '#000000');
+          if (shape.line) { t.setAttribute('vector-effect', 'non-scaling-stroke'); t.setAttribute('paint-order', 'stroke'); }
+          svg.appendChild(t);
+        });
+      });
+      svg.style.overflow = 'visible';
+      return svg;
+    }
     const g = svgEl('g', { transform: `scale(${sx} 1)` });
     const top = (H - lineH * n) / 2;
     lines.forEach((line, i) => {
@@ -1718,9 +2018,15 @@
     flushViews();
     ctx.chains = chainViews(doc, index, ctx);
     // (only a plain colour: this goes into a style)
-    if (/^#[0-9a-f]{6}$/i.test(page.background || '')) {
+    const hex = (c) => /^#[0-9a-f]{6}$/i.test(c || '');
+    const bf = page.background_fill;
+    let back = null;
+    if (bf && Number.isInteger(bf.image) && ctx.images[bf.image]) back = `url("${ctx.imageUrl(bf.image)}") center / 100% 100% no-repeat`;
+    else if (bf && hex(bf.color) && hex(bf.color2)) back = `linear-gradient(${Number(bf.angle) || 0}deg, ${bf.color}, ${bf.color2})`;
+    else if (hex(page.background)) back = page.background;
+    if (back) {
       const bg = el('div', 'op-pagebg');
-      bg.style.cssText = `position:absolute;left:0;top:0;width:100%;height:100%;background:${page.background};-webkit-print-color-adjust:exact;print-color-adjust:exact`;
+      bg.style.cssText = `position:absolute;left:0;top:0;width:100%;height:100%;background:${back};-webkit-print-color-adjust:exact;print-color-adjust:exact`;
       pg.appendChild(bg);
     }
     for (const s of page.shapes) renderShape(s, ctx, pg);

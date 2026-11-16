@@ -27,6 +27,11 @@ fn main() {
             }
             Err(e) => eprintln!("{e}"),
         },
+        // a document model saved as JSON (by `json`, perhaps edited) written as a Word document
+        "model-docx" => {
+            let doc: openpub_core::model::Document = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+            openpub_core::docx::export_docx(&doc, std::path::Path::new(&args[3])).unwrap();
+        }
         other => eprintln!("unknown mode {other}"),
     }
 }

@@ -1586,7 +1586,7 @@
   function setPageBackground(color, all) {
     if (!doc) return;
     commitEdit();
-    const set = (pg) => { if (color) pg.background = color; else delete pg.background; };
+    const set = (pg) => { delete pg.background_fill; if (color) pg.background = color; else delete pg.background; };
     if (all) {
       pushUndo();
       doc.pages.forEach((pg, i) => { set(pg); redraw(i); });

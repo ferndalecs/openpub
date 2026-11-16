@@ -64,14 +64,16 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
   * Tables: insert; add/delete rows and columns, merge/split cells, cell fill, vertical
     alignment and borders; header-row and banded-row colours.
   * Pages: add, duplicate, delete, reorder (buttons or drag in the page list); page size (A4,
-    A5, A3, Letter, Legal, Tabloid or custom) and orientation; page background colour; page
+    A5, A3, Letter, Legal, Tabloid or custom) and orientation; page background colour (a
+    publication's own background colour, gradient or picture is shown); page
     border; edit the master page items (headers, footers, page numbers).
   * Undo/redo with Ctrl+Z / Ctrl+Y.
 * **Save** to OpenPub's own format, `.opub` (a zip with `document.json` and the pictures).
   OpenPub does not write `.pub` files: the original is never modified.
 * **Export** to PDF (real text, the publication's page size), a PNG picture of a page, to a Word document (`.docx`:
   editable text boxes - linked where Publisher links them -, real Word numbering, tables,
-  pictures, Office shapes, WordArt as Word text effects, shadows) and print.
+  pictures with their adjustments, Office shapes, WordArt as Word text effects, shadows, links
+  on objects, page backgrounds) and print.
 * **File association**: the installers register OpenPub for `.pub` and `.opub`; File > Options
   does the same for the current user. `openpub.exe --register` / `--unregister` do it from a
   script.
@@ -144,7 +146,7 @@ powershell -File tools/pubprobe.ps1 -Pub x.pub -Pages 2 -Expr '$s.TextWrap.Type'
 ```
 
 `tools/makeprobe*.ps1` build test publications in Publisher through automation (wrapping, lists,
-shapes and WordArt, vertical alignment) - see `samples/probe/`. `tools/samples.py` lists the
+shapes and WordArt, vertical alignment, columns, page backgrounds, BorderArt) - see `samples/probe/`. `tools/samples.py` lists the
 samples and their slugs.
 
 The editor has automated checks that run inside a debug build:
@@ -154,18 +156,22 @@ Replace and the text buttons, `tools/pagetest.js` for the shapes gallery, align/
 setup, `tools/extratest.js` for WordArt, effects, links, table styles, picture adjustments,
 the page picture and the designs, `tools/wraptest.js` for editing text that flows round a
 shape); results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the
-feature samples to Word, opens each in Word and compares them with Publisher's pages.
+feature samples to Word, opens each in Word and compares them with Publisher's pages;
+`tools/docx-open.ps1` checks that Word accepts an exported document and lists its links.
 
 ## Known gaps
 
 * Rendering:
-  * Text flows on both sides of a shape in the middle of a frame, as in Publisher, except in
-    centred or right-aligned text, frames with columns and frames holding an inline table or
-    picture, where it keeps to the wider side. Text columns in a frame are drawn, with text
-    wrapping round shapes inside each column. Line breaks beside a shape can differ a little.
-  * WordArt: plain, arched and wavy styles are drawn; 3-D/extruded styles, vertical (stacked)
-    text, multi-stop and preset gradients and textures come out flat or approximated.
-  * BorderArt (picture borders) isn't drawn; gradients have two colours.
+  * Text flows on both sides of a shape in the middle of a frame, as in Publisher - also in
+    centred, right-aligned and justified text and inside columns - except in frames holding an
+    inline table or picture, frames whose paragraphs are aligned differently, and centred or
+    right-aligned text with more than one shape beside a line, where it keeps to the wider
+    side. Line breaks beside a shape can differ a little.
+  * WordArt: plain, arched, wavy and vertical (stacked) styles are drawn; 3-D/extruded styles,
+    multi-stop and preset gradients and textures come out flat or approximated.
+  * BorderArt (picture borders) is drawn from the tiles stored in the file, on Windows; it
+    can't be added or changed in the editor. Gradients have two colours; patterned fills and
+    page backgrounds come out as their main colour.
   * Horizontal scaling of characters isn't drawn (strikethrough, small caps, all caps, outline,
     emboss, engrave, tracking and kerning are).
   * Hyphenation uses English (UK) patterns for all text, so line breaks in other languages
@@ -176,9 +182,8 @@ feature samples to Word, opens each in Word and compares them with Publisher's p
   moved in a document saved by Publisher, the text follows Publisher's saved list of what it
   flows around (shapes added in OpenPub always count).
 * Word export: Word lays text out itself, so line breaks can differ from Publisher's; wrapping
-  around shapes is approximated per paragraph. Links on objects and picture adjustments
-  (brightness, contrast, grayscale, picture-in-a-shape) made in OpenPub aren't carried into the
-  Word file; links aren't clickable in the PDF.
+  around shapes is approximated per paragraph, on one side of a shape. BorderArt and a picture
+  shown inside a shape aren't carried into the Word file; links aren't clickable in the PDF.
 * Saving back to `.pub` is not supported.
 
 ## Contributing

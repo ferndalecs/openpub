@@ -26,12 +26,13 @@ const NS_MC: &str = "http://schemas.openxmlformats.org/markup-compatibility/2006
 pub fn export_docx(doc: &Document, path: &std::path::Path) -> Result<(), String> {
     // a page's background colour becomes a page-sized rectangle behind everything else
     let with_backgrounds;
-    let doc = if doc.pages.iter().any(|p| p.background.is_some()) {
+    let doc = if doc.pages.iter().any(|p| p.background.is_some() || p.background_fill.is_some()) {
         let mut d = doc.clone();
         let (w, h) = (d.width, d.height);
         for p in &mut d.pages {
-            if let Some(color) = p.background.take() {
-                let rect = Shape { kind: "shape".into(), shape_type: 1, w, h, fill: Some(Fill { color, opacity: 1.0, ..Default::default() }), wrap: Some("none".into()), ..Default::default() };
+            let fill = p.background_fill.take().or(p.background.take().map(|color| Fill { color, opacity: 1.0, ..Default::default() }));
+            if let Some(fill) = fill {
+                let rect = Shape { kind: "shape".into(), shape_type: 1, w, h, fill: Some(fill), wrap: Some("none".into()), ..Default::default() };
                 p.shapes.insert(0, rect);
             }
         }
@@ -68,6 +69,8 @@ pub fn export_docx(doc: &Document, path: &std::path::Path) -> Result<(), String>
         chains: HashMap::new(),
         images: &doc.images,
         image_colors: HashMap::new(),
+        links: Vec::new(),
+        link: None,
     };
     let body = ex.body();
 
@@ -133,6 +136,13 @@ pub fn export_docx(doc: &Document, path: &std::path::Path) -> Result<(), String>
         let _ = write!(
             doc_rels,
             "<Relationship Id=\"rIdImg{i}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/image{i}.{e}\"/>"
+        );
+    }
+    for (i, url) in ex.links.iter().enumerate() {
+        let _ = write!(
+            doc_rels,
+            "<Relationship Id=\"rIdLink{i}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink\" Target=\"{}\" TargetMode=\"External\"/>",
+            esc(url)
         );
     }
     if numbering.is_some() {
@@ -609,6 +619,10 @@ struct Exporter<'a> {
     images: &'a [crate::model::Image],
     /// Average colour of pictures used as WordArt fills (Word can't fill letters with one).
     image_colors: HashMap<usize, Option<String>>,
+    /// Web and e-mail addresses objects link to (relationship rIdLink<index>).
+    links: Vec<String>,
+    /// The link of the object being written.
+    link: Option<usize>,
 }
 
 /// One numbered list: its number format and how its numbers look.
@@ -780,6 +794,14 @@ impl<'a> Exporter<'a> {
 
     /// Appends the `<w:drawing>` elements for a shape (groups are flattened).
     fn shape(&mut self, s: &Shape, page: u32, out: &mut Vec<String>) {
+        // a link on the object: web and e-mail addresses only
+        self.link = s.link.as_deref().map(str::trim).filter(|u| {
+            let l = u.to_ascii_lowercase();
+            (l.starts_with("https://") || l.starts_with("http://") || l.starts_with("mailto:")) && u.len() <= 2000 && !u.chars().any(|c| c.is_control() || c.is_whitespace())
+        }).map(|u| {
+            self.links.push(u.to_string());
+            self.links.len() - 1
+        });
         match s.kind.as_str() {
             "group" => {
                 for c in &s.children {
@@ -845,7 +867,19 @@ impl<'a> Exporter<'a> {
         }
         let id = self.id();
         let mut g = format!(
-            "<pic:pic><pic:nvPicPr><pic:cNvPr id=\"{id}\" name=\"image{i}\"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed=\"rIdImg{i}\"/>{}<a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr>{}{}",
+            "<pic:pic><pic:nvPicPr><pic:cNvPr id=\"{id}\" name=\"image{i}\"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed=\"rIdImg{i}\">{}</a:blip>{}<a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr>{}{}",
+            {
+                // adjustments made in OpenPub: black and white, brightness, contrast
+                let mut fx = String::new();
+                if s.gray {
+                    fx.push_str("<a:grayscl/>");
+                }
+                if s.brightness != 0.0 || s.contrast != 0.0 {
+                    let k = |v: f64| (v.clamp(-100.0, 100.0) * 1000.0).round() as i32;
+                    let _ = write!(fx, "<a:lum bright=\"{}\" contrast=\"{}\"/>", k(s.brightness), k(s.contrast));
+                }
+                fx
+            },
             src_rect(s.crop.as_ref()),
             f.xfrm(),
             geometry(s)
@@ -1206,7 +1240,7 @@ impl<'a> Exporter<'a> {
         self.z += 1;
         let (x, y) = (f.x, f.y);
         format!(
-            "<w:drawing><wp:anchor distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\" simplePos=\"0\" relativeHeight=\"{}\" behindDoc=\"0\" locked=\"0\" layoutInCell=\"1\" allowOverlap=\"1\"><wp:simplePos x=\"0\" y=\"0\"/><wp:positionH relativeFrom=\"page\"><wp:posOffset>{}</wp:posOffset></wp:positionH><wp:positionV relativeFrom=\"page\"><wp:posOffset>{}</wp:posOffset></wp:positionV><wp:extent cx=\"{}\" cy=\"{}\"/><wp:effectExtent l=\"0\" t=\"0\" r=\"0\" b=\"0\"/><wp:wrapNone/><wp:docPr id=\"{}\" name=\"{}\"/><wp:cNvGraphicFramePr/><a:graphic><a:graphicData uri=\"{}\">{}</a:graphicData></a:graphic></wp:anchor></w:drawing>",
+            "<w:drawing><wp:anchor distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\" simplePos=\"0\" relativeHeight=\"{}\" behindDoc=\"0\" locked=\"0\" layoutInCell=\"1\" allowOverlap=\"1\"><wp:simplePos x=\"0\" y=\"0\"/><wp:positionH relativeFrom=\"page\"><wp:posOffset>{}</wp:posOffset></wp:positionH><wp:positionV relativeFrom=\"page\"><wp:posOffset>{}</wp:posOffset></wp:positionV><wp:extent cx=\"{}\" cy=\"{}\"/><wp:effectExtent l=\"0\" t=\"0\" r=\"0\" b=\"0\"/><wp:wrapNone/><wp:docPr id=\"{}\" name=\"{}\">{}</wp:docPr><wp:cNvGraphicFramePr/><a:graphic><a:graphicData uri=\"{}\">{}</a:graphicData></a:graphic></wp:anchor></w:drawing>",
             z * 1024,
             emu(x),
             emu(y),
@@ -1214,6 +1248,7 @@ impl<'a> Exporter<'a> {
             emu(f.h),
             id,
             esc(name),
+            self.link.map(|i| format!("<a:hlinkClick xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" r:id=\"rIdLink{i}\"/>")).unwrap_or_default(),
             uri,
             graphic
         )

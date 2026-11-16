@@ -49,6 +49,9 @@ pub struct Page {
     /// Colour behind everything on the page (set in OpenPub).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background: Option<String>,
+    /// A gradient or picture behind everything on the page (from a Publisher page background).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background_fill: Option<Fill>,
 }
 
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
@@ -88,6 +91,9 @@ pub struct Shape {
     pub line: Option<Line>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<usize>,
+    /// A border made of small pictures (Publisher's BorderArt).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub border_art: Option<BorderArt>,
     /// Fractions cropped off the picture: left, top, right, bottom.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub crop: Option<[f64; 4]>,
@@ -149,6 +155,9 @@ pub struct WordArt {
     /// The text is stretched to fill the shape.
     #[serde(skip_serializing_if = "is_false")]
     pub stretch: bool,
+    /// Letters stand on top of one another (each turned a quarter turn against the shape).
+    #[serde(skip_serializing_if = "is_false")]
+    pub vertical: bool,
 }
 
 fn is_le_one(v: &u8) -> bool {
@@ -189,6 +198,16 @@ impl Default for Fill {
     fn default() -> Self {
         Fill { color: "#ffffff".into(), opacity: 1.0, color2: None, angle: 0.0, image: None }
     }
+}
+
+/// A picture border: eight pictures (top-left corner, top, top-right corner, right,
+/// bottom-right corner, bottom, bottom-left corner, left) drawn `size` points square and
+/// repeated along the edges.
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+#[serde(default)]
+pub struct BorderArt {
+    pub tiles: Vec<usize>,
+    pub size: f64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

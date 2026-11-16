@@ -32,6 +32,8 @@ struct PageInfo {
     master: Option<u32>,
     is_master: bool,
     visible: bool,
+    /// The page-sized shape that carries the page background's fill.
+    background: Option<u32>,
 }
 
 #[derive(Default)]
@@ -54,6 +56,11 @@ struct ContentsInfo {
     valigns: HashMap<u32, u32>,
     /// text frame seq -> its position in a chain of linked frames sharing one story
     chains: HashMap<u32, u32>,
+    /// the publication's picture borders: for each, its eight tiles as indices into its pictures
+    /// (Windows metafiles)
+    border_arts: Vec<(Vec<usize>, Vec<Vec<u8>>)>,
+    /// shape seq -> which picture border it has
+    border_art_of: HashMap<u32, u32>,
 }
 
 fn ints(bs: &[Block]) -> Vec<u32> {
@@ -96,7 +103,24 @@ fn parse_contents(d: &[u8]) -> ContentsInfo {
                     Some(BVal::Bytes(x)) => x.first().copied().unwrap_or(0) != 0,
                     _ => true,
                 };
-                pages.insert(*seq, PageInfo { seq: *seq, shapes, master: int(&bs, 0xd), is_master: kind == 3, visible });
+                pages.insert(*seq, PageInfo { seq: *seq, shapes, master: int(&bs, 0xd), is_master: kind == 3, visible, background: int(&bs, 0xa) });
+            }
+            0x46 => {
+                // picture borders (BorderArt): each has a list of pictures and, for its eight
+                // tiles, where the tile's picture block sits (counted from the entry's length field)
+                let bs = chunk_blocks(d, *off);
+                for e in list(&bs, 2).unwrap_or(&[]).iter().take(1000) {
+                    let BVal::List(sub) = &e.val else { continue };
+                    let blocks: Vec<&Block> = list(sub, 0x0a).unwrap_or(&[]).iter().filter_map(|b| if let BVal::List(l) = &b.val { find(l, 1) } else { None }).collect();
+                    let pictures: Vec<Vec<u8>> = blocks.iter().map(|b| d.get(b.span.0..b.span.1).unwrap_or(&[]).to_vec()).collect();
+                    // (the tiles' offsets, in order of position, name the pictures in order)
+                    let offsets = list(sub, 8).map(ints).unwrap_or_default();
+                    let mut distinct = offsets.clone();
+                    distinct.sort_unstable();
+                    distinct.dedup();
+                    let tiles: Vec<usize> = offsets.iter().map(|o| distinct.iter().position(|d| d == o).unwrap_or(0)).collect();
+                    info.border_arts.push((tiles, pictures));
+                }
             }
             0x10 => {
                 let bs = chunk_blocks(d, *off);
@@ -139,6 +163,11 @@ fn parse_contents(d: &[u8]) -> ContentsInfo {
                 }
                 if let Some(v) = int(&bs, 0x28) {
                     info.chains.insert(*seq, v);
+                }
+                if let Some(b) = bs.iter().find(|b| b.id == 0x09 && b.ty == 0x18) {
+                    if let BVal::Int(v) = b.val {
+                        info.border_art_of.insert(*seq, v);
+                    }
                 }
 
             }
@@ -366,6 +395,8 @@ struct Conv<'a> {
     page_h: f64,
     images: Vec<Image>,
     image_of_blip: HashMap<u32, usize>,
+    /// picture border number -> its tiles as pictures of the document (None: couldn't be drawn)
+    border_tiles: HashMap<u32, Option<Vec<usize>>>,
 }
 
 #[derive(Clone, Copy)]
@@ -437,6 +468,30 @@ impl<'a> Conv<'a> {
         Some(self.images.len() - 1)
     }
 
+    /// The tiles of picture border `n`, drawn as PNG pictures (once per publication).
+    fn border_art(&mut self, n: u32) -> Option<Vec<usize>> {
+        if let Some(t) = self.border_tiles.get(&n) {
+            return t.clone();
+        }
+        let info = self.info;
+        let mut made = None;
+        if let Some((tiles, pictures)) = info.border_arts.get(n as usize) {
+            if tiles.len() == 8 && pictures.len() <= 64 {
+                let mut at: Vec<Option<usize>> = Vec::new();
+                for p in pictures {
+                    let png = crate::metafile::to_png(p, true, 160, 160);
+                    at.push(png.map(|bytes| {
+                        self.images.push(Image { mime: "image/png".into(), bytes, orientation: 1 });
+                        self.images.len() - 1
+                    }));
+                }
+                made = tiles.iter().map(|t| at.get(*t).copied().flatten()).collect::<Option<Vec<usize>>>();
+            }
+        }
+        self.border_tiles.insert(n, made.clone());
+        made
+    }
+
     fn fill(&mut self, s: &EShape, default_on: bool) -> Option<Fill> {
         let bools = s.props.get(&0x1bf).copied();
         let filled = match bools {
@@ -456,6 +511,11 @@ impl<'a> Conv<'a> {
         if (4..=7).contains(&fill_type) {
             f.color2 = Some(s.props.get(&0x183).and_then(|v| self.color(*v)).unwrap_or_else(|| "#ffffff".into()));
             f.angle = s.props.get(&0x18b).map(|v| *v as i32 as f64 / 65536.0).unwrap_or(0.0);
+            // "focus" 100 runs the gradient the other way round
+            if s.props.get(&0x18c).map(|v| (*v as i32).abs() > 75).unwrap_or(false) {
+                let first = std::mem::replace(&mut f.color, f.color2.take().unwrap_or_default());
+                f.color2 = Some(first);
+            }
         } else if fill_type == 3 || fill_type == 2 {
             f.image = s.props.get(&0x186).copied().and_then(|p| self.image(p));
         }
@@ -530,6 +590,7 @@ impl<'a> Conv<'a> {
             size: s.props.get(&0xc3).map(|v| *v as f64 / 65536.0).unwrap_or(36.0),
             // gtextFStretch, on unless explicitly off
             stretch: bools & (1 << 26) == 0 || bools & (1 << 10) != 0,
+            vertical: flag(13),
         })
     }
 
@@ -719,6 +780,13 @@ impl<'a> Conv<'a> {
         sh.fill = if is_line || is_table { None } else { self.fill(s, default_on) };
         sh.line = if is_table { None } else { self.line(s, 0x1c0, default_on, 0.75) };
         sh.shadow = self.shadow(s);
+        if let Some(&n) = self.info.border_art_of.get(&seq) {
+            let size = s.props.get(&0x1cb).map(|v| emu(*v)).unwrap_or(0.0);
+            if let (true, Some(tiles)) = ((1.0..=400.0).contains(&size), self.border_art(n)) {
+                sh.border_art = Some(BorderArt { tiles, size });
+                sh.line = None;
+            }
+        }
         if (136..=175).contains(&s.shape_type) {
             sh.wordart = self.wordart(s);
             if sh.wordart.is_some() {
@@ -913,17 +981,27 @@ pub fn load(path: &std::path::Path) -> Result<Document, String> {
             stories.insert(*id, (k, *a, *b));
         }
     }
-    let mut cv = Conv { info: &info, esc: &esc, text: quill.as_ref().map(|q| TextCtx { q, palette: &info.palette }), stories, cell_shapes, by_seq: by_seq.clone(), border_shapes, page_w, page_h, images: Vec::new(), image_of_blip: HashMap::new() };
+    let mut cv = Conv { info: &info, esc: &esc, text: quill.as_ref().map(|q| TextCtx { q, palette: &info.palette }), stories, cell_shapes, by_seq: by_seq.clone(), border_shapes, page_w, page_h, images: Vec::new(), image_of_blip: HashMap::new(), border_tiles: HashMap::new() };
     let masters: HashMap<u32, &PageInfo> = info.pages.iter().filter(|p| p.is_master).map(|p| (p.seq, p)).collect();
     for p in info.pages.iter().filter(|p| !p.is_master && p.visible) {
         let number = doc.pages.len() as u32 + 1;
-        let mut page = Page { name: format!("Page {number}"), number, shapes: Vec::new(), background: None };
+        let mut page = Page { name: format!("Page {number}"), number, shapes: Vec::new(), ..Default::default() };
+        // the page's own background, or else its master page's
+        let master = p.master.and_then(|m| masters.get(&m));
+        let back = p.background.or(master.and_then(|m| m.background)).and_then(|seq| by_seq.get(&seq));
+        if let Some(f) = back.and_then(|sh| cv.fill(sh, true)) {
+            if f.color2.is_some() || f.image.is_some() {
+                page.background_fill = Some(f);
+            } else if !f.color.eq_ignore_ascii_case("#ffffff") {
+                page.background = Some(f.color);
+            }
+        }
         let in_stack_order = |list: &[u32]| {
             let mut v: Vec<u32> = list.to_vec();
             v.sort_by_key(|s| stack.get(s).copied().unwrap_or((usize::MAX, 0)));
             v
         };
-        if let Some(m) = p.master.and_then(|m| masters.get(&m)) {
+        if let Some(m) = master {
             for seq in in_stack_order(&m.shapes) {
                 if let Some(sh) = by_seq.get(&seq) {
                     cv.convert(sh, None, true, &mut page.shapes);
@@ -939,7 +1017,7 @@ pub fn load(path: &std::path::Path) -> Result<Document, String> {
     }
     if doc.pages.is_empty() {
         doc.notes.push("No pages could be read from this file.".into());
-        doc.pages.push(Page { name: "Page 1".into(), number: 1, shapes: Vec::new(), background: None });
+        doc.pages.push(Page { name: "Page 1".into(), number: 1, shapes: Vec::new(), ..Default::default() });
     }
     doc.images = cv.images;
     compute_wraps(&mut doc);

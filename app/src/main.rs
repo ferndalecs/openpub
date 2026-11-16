@@ -146,7 +146,7 @@ fn load(path: &Path) -> Result<(String, Vec<Image>), String> {
 /// A blank one-page publication, as JSON for the page.
 fn blank(width: f64, height: f64, name: &str) -> String {
     let mut doc = Document { width, height, default_tab: 36.0, ..Default::default() };
-    doc.pages.push(openpub_core::model::Page { name: String::new(), number: 1, shapes: Vec::new(), background: None });
+    doc.pages.push(openpub_core::model::Page { name: String::new(), number: 1, shapes: Vec::new(), ..Default::default() });
     // line spacing needs the metrics of the fonts people are likely to pick
     for font in ["Calibri", "Arial", "Times New Roman", "Cambria", "Georgia", "Verdana", "Tahoma", "Segoe UI", "Comic Sans MS", "Century Gothic", "Arial Black"] {
         if let Some(m) = openpub_core::fonts::metrics(font) {
