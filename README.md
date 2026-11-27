@@ -93,7 +93,8 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
 * **Export** to PDF (real text, the publication's page size), a PNG picture of a page, to a Word document (`.docx`:
   editable text boxes - linked where Publisher links them -, real Word numbering, tables,
   pictures with their adjustments, Office shapes, WordArt as Word text effects, shadows, links
-  on objects, page backgrounds) and print.
+  on objects, page backgrounds) and print - every page, or as a folded booklet (pages two to a
+  side in folding order, on A4 for pages bigger than A5; also as a PDF booklet).
 * **File association**: the installers register OpenPub for `.pub` and `.opub`; File > Options
   does the same for the current user. `openpub.exe --register` / `--unregister` do it from a
   script.
@@ -177,7 +178,7 @@ setup, `tools/extratest.js` for WordArt, effects, links, table styles, picture a
 the page picture and the designs, `tools/wraptest.js` for editing text that flows round a
 shape, `tools/safetytest.js` for not losing unsaved work, `tools/linktest.js` for linked text boxes
 and text positions, `tools/texttest.js` for the font and size lists, WordArt typed on the page and
-text that doesn't fit). `tools/helptest.js` covers the help page, the table grid, the designs (all their text must
+text that doesn't fit). `tools/booktest.js` covers pattern fills and booklets. `tools/helptest.js` covers the help page, the table grid, the designs (all their text must
 fit), the page sizes and the tooltips. `tools/drawtest.js` covers drawing with the mouse, snapping,
 the right-click menu, colour swatches, arrowheads and pictures by paste and drop.
 `tools/rectest.ps1` checks recovery copies: a window is killed mid-work
@@ -196,8 +197,9 @@ feature samples to Word, opens each in Word and compares them with Publisher's p
   * WordArt: plain, arched, wavy and vertical (stacked) styles are drawn; 3-D/extruded styles,
     multi-stop and preset gradients and textures come out flat or approximated.
   * BorderArt (picture borders) is drawn from the tiles stored in the file, on Windows; it
-    can't be added or changed in the editor. Gradients have two colours; patterned fills and
-    page backgrounds come out as their main colour.
+    can't be added or changed in the editor. Gradients have two colours. Pattern fills (shapes
+    and page backgrounds) are drawn; in the Word export they become the colour they look like
+    from a distance.
   * Horizontal scaling of characters isn't drawn (strikethrough, small caps, all caps, outline,
     emboss, engrave, tracking and kerning are).
   * Hyphenation uses English (UK) patterns for all text, so line breaks in other languages

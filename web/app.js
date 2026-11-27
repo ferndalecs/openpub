@@ -1667,11 +1667,26 @@
       if (type) s.shape_type = type;
     }, true);
   }
+  /** A pattern (16 hex digits, see model.rs) in the fill colour on white; '' for none. */
+  function setPattern(bits) {
+    editShapes((s) => {
+      if (s.kind === 'line' || (s.fill && s.fill.image != null)) return;
+      if (!bits) { if (s.fill) { delete s.fill.pattern; delete s.fill.back; } return; }
+      if (!/^[0-9a-f]{16}$/i.test(bits)) return;
+      if (!s.fill || (s.fill.color || '').toLowerCase() === '#ffffff') s.fill = { color: '#1e88e5', opacity: s.fill ? s.fill.opacity : 1 };
+      delete s.fill.color2;
+      delete s.fill.angle;
+      s.fill.pattern = bits.toLowerCase();
+      s.fill.back = s.fill.back || '#ffffff';
+    });
+  }
   /** dir: null = no gradient, a number = its angle; color2: the second colour. */
   function setGradient(dir, color2) {
     editShapes((s) => {
       if (!s.fill || s.fill.image != null || s.kind === 'line') return;
       if (dir === null) { delete s.fill.color2; delete s.fill.angle; return; }
+      delete s.fill.pattern;
+      delete s.fill.back;
       s.fill.color2 = color2 || s.fill.color2 || $('fill2').value;
       if (dir !== undefined) s.fill.angle = dir;
       else if (s.fill.angle == null) s.fill.angle = 180;
@@ -2925,6 +2940,8 @@
     // gradient, shadow, link, WordArt
     const grad = f && f.fill.color2 ? f.fill : null;
     setv('graddir', grad ? String(grad.angle || 0) : '');
+    setv('pattern', f && f.fill.pattern ? f.fill.pattern : '');
+    if ($('pattern').selectedIndex < 0) $('pattern').selectedIndex = 0;
     if ($('graddir').selectedIndex < 0) $('graddir').value = '180';
     if (grad && isHex(grad.color2)) $('fill2').value = grad.color2;
     const shd = lv.find((s) => s.shadow);
@@ -3026,7 +3043,7 @@
     const text = s || !!textSel;
     en(['font', 'size', 'grow', 'shrink', 'bold', 'italic', 'underline', 'strike', 'super', 'sub', 'color', 'al', 'ac', 'ar', 'aj', 'bul', 'bulmenu', 'num', 'nummenu', 'indl', 'indr', 'spbtn'], text);
     const lv = sel ? leaves(sel.shapes).filter((x) => x.kind !== 'table') : [];
-    en(['fill', 'nofill', 'transp', 'graddir', 'fill2'], s && lv.some((x) => x.kind !== 'line'));
+    en(['fill', 'nofill', 'transp', 'graddir', 'fill2', 'pattern'], s && lv.some((x) => x.kind !== 'line'));
     en(['shadowbtn', 'shadowcolor', 'linkbtn'], s);
     en(['addwa'], has);
     en(['linecolor', 'linewidth', 'dash'], s && lv.length > 0);
@@ -3299,6 +3316,7 @@
         const old = s.fill && !s.fill.image ? s.fill : null;
         s.fill = { color, opacity: old && old.opacity != null ? old.opacity : 1 };
         if (old && old.color2) { s.fill.color2 = old.color2; if (old.angle) s.fill.angle = old.angle; }
+        if (old && old.pattern) { s.fill.pattern = old.pattern; s.fill.back = old.back || '#ffffff'; }
       }
       else delete s.fill;
     });
@@ -3987,6 +4005,7 @@
     if (pane === 'new') fillNew();
     if ((pane === 'open' || pane === 'new') && !doc) askAssoc(); else $('assocask').hidden = true;
     if (pane === 'info') fillInfo();
+    if (pane === 'print') bookletInfo();
     $('file').hidden = false;
     $('filebody').scrollTop = 0;
     if (cur) cur.focus();
@@ -4518,6 +4537,92 @@
     preparePrint().then(() => send({ cmd: 'pdf', width: doc.width, height: doc.height, path: exportPdf.path }));
   }
 
+
+  // ---- booklets ---------------------------------------------------------------------------------
+  // Pages two to a side of a sheet, in the order for folding the printed stack in half: sheet i has
+  // pages n-1-2i and 2i on its front and 2i+1 and n-2-2i on its back (n: the pages, made up to a
+  // multiple of 4 with blanks). Pages bigger than A5 are printed smaller, on A4 paper.
+  const A4_LAND = [841.89, 595.28];
+  function bookletPlan() {
+    const n = Math.ceil(doc.pages.length / 4) * 4;
+    const sides = [];
+    for (let i = 0; i < n / 4; i++) {
+      sides.push([n - 1 - 2 * i, 2 * i]);
+      sides.push([2 * i + 1, n - 2 - 2 * i]);
+    }
+    let pw = 2 * doc.width, ph = doc.height, k = 1;
+    if (pw > A4_LAND[0] + 2 || ph > A4_LAND[1] + 2) {
+      k = Math.min(A4_LAND[0] / pw, A4_LAND[1] / ph);
+      pw = A4_LAND[0];
+      ph = A4_LAND[1];
+    }
+    return { n, sides, paper: [pw, ph], k };
+  }
+  function bookletInfo() {
+    if (!doc) return;
+    const b = bookletPlan();
+    const blanks = b.n - doc.pages.length;
+    const paper = b.k < 1 ? 'A4 paper (landscape), with each page printed smaller' : `paper ${fmtCm(b.paper[0])} × ${fmtCm(b.paper[1])} cm`;
+    $('bookinfo').textContent = `${doc.pages.length} page${doc.pages.length > 1 ? 's' : ''} on ${b.n / 4} sheet${b.n > 4 ? 's' : ''} of ${paper}${blanks ? `; ${blanks} blank page${blanks > 1 ? 's' : ''} added at the end` : ''}.`;
+  }
+  /** Lays the booklet out for printing (off screen until printed); `printRestore` takes it away. */
+  function prepareBooklet() {
+    commitEdit();
+    select(0, null);
+    busy = true;
+    const b = bookletPlan();
+    const style = document.createElement('style');
+    style.textContent = `@page { size: ${b.paper[0]}pt ${b.paper[1]}pt; margin: 0; }`;
+    document.head.appendChild(style);
+    const box = document.createElement('div');
+    box.id = 'printbook-out';
+    document.body.appendChild(box);
+    const finish = [];
+    for (const pair of b.sides) {
+      const side = document.createElement('div');
+      side.className = 'bside';
+      side.style.width = b.paper[0] + 'pt';
+      side.style.height = b.paper[1] + 'pt';
+      side.dataset.pages = pair.map((i) => i + 1).join(',');
+      for (const i of pair) {
+        const slot = document.createElement('div');
+        slot.className = 'bslot';
+        slot.style.width = doc.width * b.k + 'pt';
+        slot.style.height = doc.height * b.k + 'pt';
+        if (i < doc.pages.length) {
+          const wrap = OpenPub.renderPage(doc, i, { scale: b.k, imageUrl });
+          slot.appendChild(wrap);
+          finish.push(wrap);
+        }
+        side.appendChild(slot);
+      }
+      box.appendChild(side);
+    }
+    for (const w of finish) w.opFinish();
+    document.body.classList.add('bookprint');
+    printRestore = () => {
+      printRestore = null;
+      busy = false;
+      style.remove();
+      box.remove();
+      document.body.classList.remove('bookprint');
+      updateButtons();
+    };
+    const imgs = [...box.querySelectorAll('img')];
+    return Promise.all(imgs.map((im) => (im.decode ? im.decode().catch(() => {}) : Promise.resolve()))).then(() => b);
+  }
+  function printBooklet() {
+    if (!doc || busy) return;
+    prepareBooklet().then(() => {
+      window.addEventListener('afterprint', () => printRestore && printRestore(), { once: true });
+      window.print();
+    });
+  }
+  function exportBookletPdf() {
+    if (!doc || busy) return;
+    prepareBooklet().then((b) => send({ cmd: 'pdf', width: b.paper[0], height: b.paper[1], path: exportBookletPdf.path }));
+  }
+
   // ---- events ------------------------------------------------------------------------------
 
   const on = (id, fn) => $(id).addEventListener('click', fn);
@@ -4533,6 +4638,8 @@
   on('assocno', () => { $('assocask').hidden = true; send({ cmd: 'assocAnswer', yes: false }); });
   on('docx', () => { if (!doc) return; hideFile(); send({ cmd: 'docx', doc: docJson() }); });
   on('print', () => { hideFile(); printAll(); });
+  on('printbook', () => { hideFile(); printBooklet(); });
+  on('pdfbook', () => { hideFile(); exportBookletPdf(); });
   on('assoc', () => send({ cmd: 'associate' }));
   on('filebtn', () => showFile(doc ? 'info' : 'open'));
   on('fileback', hideFile);
@@ -4566,6 +4673,7 @@
   on('fittext', shrinkTextToFit);
   onChange('wastyle', (v) => setWordArt(null, parseInt(v, 10)));
   onChange('graddir', (v) => setGradient(v === '' ? null : parseFloat(v)));
+  onChange('pattern', (v) => setPattern(v));
   onChange('fill2', (v) => setGradient(undefined, v));
   on('shadowbtn', () => setShadow(!$('shadowbtn').classList.contains('on')));
   onChange('shadowcolor', (v) => setShadow(true, v));
@@ -4942,6 +5050,8 @@
       replacePicture, setCropMode, cropTo, setCropSide, copySel, pasteClip, handlePaste, setMasterMode, showTab, syncToolbar,
       quiet: (v) => { quiet = !!v; }, toLocal, gridHit, rowEdges,
       clean: () => setDirty(false),
+      bookletPlan, prepareBooklet, exportBookletPdf, printRestore: () => printRestore && printRestore(),
+      setPattern,
       armTool, cancelTool, tool: () => tool, snapTargets, snap1, showCtx, hideCtx, openSwatches, hideSwatches, setArrows, picturesAdded,
       autosaveNow, docJsonLive, checkUnsaved, setUnsavedSince: (t) => { unsavedSince = t; },
       editWordArt, endWordArt, fitBoxToText, shrinkTextToFit, overflowing, openPick, closePick, applyPick,

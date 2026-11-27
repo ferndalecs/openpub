@@ -94,6 +94,11 @@ kbd { font: inherit; color: var(--muted); }
 #bar .pop .popfield.wide { flex-direction: column; align-items: stretch; gap: 3px; }
 #bar .pop .popfield.wide input { width: 250px; }
 #bar .ribbon button.tog.has { background: var(--accent-soft); border-color: var(--accent); }
+/* the booklet laid out for printing: off screen until printed */
+#printbook-out { position: absolute; left: -100000px; top: 0; }
+#printbook-out .bside { display: flex; justify-content: center; align-items: center; background: #fff; overflow: hidden; }
+#printbook-out .bslot { position: relative; overflow: hidden; flex: none; }
+.steps { line-height: 1.6; max-width: 760px; margin: 0 0 12px; padding-left: 22px; }
 /* the help page */
 .howto { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px 22px; max-width: 980px; margin-bottom: 8px; }
 .howto h3 { margin: 0 0 4px; font-size: 14.5px; color: var(--accent); }
@@ -363,6 +368,10 @@ body.drag #view::after { content: "Drop to open"; position: absolute; inset: 12p
 body.drag #file::after { content: "Drop to open"; position: absolute; inset: 12px; border: 2px dashed var(--accent); border-radius: 10px; display: flex; align-items: center; justify-content: center; color: var(--accent); font-size: 20px; background: rgba(213,235,230,.8); pointer-events: none; }
 
 @media print {
+  body.bookprint main, body.bookprint #view, body.bookprint #pages { display: none !important; }
+  body.bookprint #printbook-out { position: static; left: auto; }
+  #printbook-out .bside { break-after: page; break-inside: avoid; }
+  #printbook-out .bside:last-child { break-after: auto; }
   html, body { height: auto; }
   body { display: block; overflow: visible; background: #fff; }
   #bar, #thumbs, #notes, #savebar, #toolhint, #ctxmenu, #swatchpop, .snapline, #file, #status, #findbar, #masterbar, .selbox, .band, .ovf, .waedit, .pickpop { display: none !important; }

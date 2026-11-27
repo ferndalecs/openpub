@@ -340,7 +340,19 @@
             <label class="swatch" title="Fill colour">Fill<input id="fill" type="color" value="#ffffff" aria-label="Fill colour"></label>
             <button id="nofill" title="No fill">No fill</button>
           </div>
-          <div class="r"><label class="fld" title="Fill transparency (0% = solid)">Transparency<input id="transp" type="number" min="0" max="100" step="5" aria-label="Fill transparency in percent">%</label></div>
+          <div class="r"><label class="fld" title="Fill transparency (0% = solid)">Transparency<input id="transp" type="number" min="0" max="100" step="5" aria-label="Fill transparency in percent">%</label>
+            <select id="pattern" title="Pattern: the fill colour in dots or stripes on white" aria-label="Fill pattern">
+              <option value="">No pattern</option>
+              <option value="8800220088002200">Small dots</option>
+              <option value="0000183c3c180000">Large dots</option>
+              <option value="ff000000ff000000">Stripes across</option>
+              <option value="8888888888888888">Stripes down</option>
+              <option value="8040201008040201">Diagonal stripes</option>
+              <option value="f0f0f0f00f0f0f0f">Checks</option>
+              <option value="ff80808080808080">Grid</option>
+              <option value="ff808080ff080808">Bricks</option>
+              <option value="8142241818244281">Diamonds</option>
+            </select></div>
         </div>
         <div class="gl">Fill</div>
       </div>
@@ -699,7 +711,7 @@
     <button id="fsave" class="needs-doc" title="Save (Ctrl+S)">Save</button>
     <button id="saveas" class="needs-doc" title="Save under a new name or in another folder (Ctrl+Shift+S)">Save As…</button>
     <button data-pane="export" class="needs-doc" aria-pressed="false" title="Make a PDF, a picture or a Word document">Export</button>
-    <button id="print" class="needs-doc" title="Print (Ctrl+P)">Print…</button>
+    <button data-pane="print" class="needs-doc" aria-pressed="false" title="Print the publication, or print it as a folded booklet (Ctrl+P prints straight away)">Print</button>
     <hr>
     <button data-pane="info" class="needs-doc" aria-pressed="false" title="About this publication: pages, size, fonts">Info</button>
     <span class="grow"></span>
@@ -731,10 +743,26 @@
       <h1>Export</h1>
       <p class="lead">Save a copy of this publication in another format. The publication itself isn't changed.</p>
       <div class="rows">
-        <button id="pdf" class="rowbtn"><b>PDF</b><span>Every page at its real size, with real text. Best for sharing and printing.</span></button>
+        <button id="pdf" class="rowbtn" title="Save every page as a PDF"><b>PDF</b><span>Every page at its real size, with real text. Best for sharing and printing.</span></button>
+        <button id="pdfbook" class="rowbtn" title="Save a PDF laid out as a folded booklet"><b>PDF booklet</b><span>The pages two to a side, ready to print on both sides and fold (see File &gt; Print).</span></button>
         <button id="png" class="rowbtn"><b>Picture of this page</b><span>The page you are on as a PNG picture (150 dots per inch), for a website, an e-mail or a slide.</span></button>
         <button id="docx" class="rowbtn"><b>Word document</b><span>Editable text boxes, tables and pictures in a .docx file. Word lays text out itself, so line breaks can differ.</span></button>
       </div>
+    </section>
+    <section id="fp-print" hidden>
+      <h1>Print</h1>
+      <p class="lead">Choose how to print. Windows' print window opens next, to choose the printer.</p>
+      <div class="rows">
+        <button id="print" class="rowbtn" title="Print every page (Ctrl+P)"><b>Print every page</b><span>Each page on its own sheet of paper, at its real size.</span></button>
+        <button id="printbook" class="rowbtn" title="Print the pages two to a sheet, in the order for folding into a booklet"><b>Print as a folded booklet</b><span id="bookinfo">Pages two to a side, in the order needed to fold the stack in half and staple it in the middle.</span></button>
+      </div>
+      <h2>Printing a booklet</h2>
+      <ol class="steps">
+        <li>In the print window, choose <b>Print on both sides</b> and <b>Flip on short edge</b> (the names vary between printers).</li>
+        <li>Choose <b>Landscape</b> if the printer asks.</li>
+        <li>Fold the stack of sheets in half, with the first page on the outside, and staple along the fold.</li>
+      </ol>
+      <p class="lead">Blank pages are added at the end when the number of pages isn't a multiple of 4. A printer that can't print on both sides can print the odd sheets first, then the even ones on the back.</p>
     </section>
     <section id="fp-info" hidden>
       <h1>Info</h1>
@@ -761,6 +789,7 @@
         <div><h3>Undo a mistake</h3><p><kbd>Ctrl+Z</kbd> takes back the last change (again for the one before); <kbd>Ctrl+Y</kbd> puts it back.</p></div>
         <div><h3>Save your work</h3><p><kbd>Ctrl+S</kbd>. OpenPub saves an OpenPub (.opub) file; a Publisher (.pub) file you opened is left as it was. Unsaved work is kept in a recovery copy and offered back if OpenPub closes unexpectedly.</p></div>
         <div><h3>Make a PDF or print</h3><p><b>File</b> &gt; <b>Export</b> &gt; <b>PDF</b> to hand in or share; <b>File</b> &gt; <b>Print</b> (<kbd>Ctrl+P</kbd>) to print.</p></div>
+        <div><h3>Print a folded booklet</h3><p><b>File</b> &gt; <b>Print</b> &gt; <b>Print as a folded booklet</b>, then print on both sides, flipping on the short edge. Fold the stack in half and staple it.</p></div>
         <div><h3>Pages</h3><p>The <b>Page</b> tab adds, copies, deletes and moves pages, and changes the page size, background and border. Things on the master page appear on every page.</p></div>
         <div><h3>Right-click</h3><p>Right-click an object for copy, paste, delete, bring to front and more; right-click an empty part of the page to add a text box there.</p></div>
       </div>

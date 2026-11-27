@@ -1124,9 +1124,39 @@
 
   let gradId = 0;
 
+  const HEX16 = /^[0-9a-f]{16}$/i;
+  /** The dots of a pattern fill: [x, y] of each set bit. */
+  function patternDots(bits) {
+    const out = [];
+    for (let y = 0; y < 8; y++) {
+      const row = parseInt(bits.slice(y * 2, y * 2 + 2), 16);
+      for (let x = 0; x < 8; x++) if (row & (0x80 >> x)) out.push([x, y]);
+    }
+    return out;
+  }
+  // (a pattern dot is 0.75 pt: an 8-dot tile is 6 pt, as Publisher draws it at 96 dots per inch)
+  const PATTERN_DOT = 0.75;
+  /** A pattern as a picture for a CSS background (page backgrounds). */
+  function patternCss(f) {
+    const back = /^#[0-9a-f]{6}$/i.test(f.back || '') ? f.back : '#ffffff';
+    const rects = patternDots(f.pattern).map(([x, y]) => `<rect x='${x}' y='${y}' width='1' height='1'/>`).join('');
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8' shape-rendering='crispEdges'><rect width='8' height='8' fill='${back}'/><g fill='${f.color}'>${rects}</g></svg>`;
+    return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 0 0 / ${pt(8 * PATTERN_DOT)} ${pt(8 * PATTERN_DOT)} repeat`;
+  }
+
   function paint(node, shape, svg) {
     const f = shape.fill;
-    if (f && !f.image) {
+    if (f && !f.image && HEX16.test(f.pattern || '') && /^#[0-9a-f]{6}$/i.test(f.color)) {
+      const id = 'opp' + (++gradId);
+      const u = PATTERN_DOT, p = svgEl('pattern', { id, patternUnits: 'userSpaceOnUse', width: 8 * u, height: 8 * u });
+      p.appendChild(svgEl('rect', { width: 8 * u, height: 8 * u, fill: /^#[0-9a-f]{6}$/i.test(f.back || '') ? f.back : '#ffffff' }));
+      for (const [x, y] of patternDots(f.pattern)) p.appendChild(svgEl('rect', { x: x * u, y: y * u, width: u, height: u, fill: f.color, 'shape-rendering': 'crispEdges' }));
+      const defs = svgEl('defs', {});
+      defs.appendChild(p);
+      svg.appendChild(defs);
+      node.setAttribute('fill', `url(#${id})`);
+      if (f.opacity < 1) node.setAttribute('fill-opacity', f.opacity);
+    } else if (f && !f.image) {
       if (f.color2) {
         const id = 'opg' + (++gradId);
         const a = ((f.angle || 0) - 90) * Math.PI / 180;
@@ -2046,6 +2076,7 @@
     const bf = page.background_fill;
     let back = null;
     if (bf && Number.isInteger(bf.image) && ctx.images[bf.image]) back = `url("${ctx.imageUrl(bf.image)}") center / 100% 100% no-repeat`;
+    else if (bf && hex(bf.color) && HEX16.test(bf.pattern || '')) back = patternCss(bf);
     else if (bf && hex(bf.color) && hex(bf.color2)) back = `linear-gradient(${Number(bf.angle) || 0}deg, ${bf.color}, ${bf.color2})`;
     else if (hex(page.background)) back = page.background;
     if (back) {

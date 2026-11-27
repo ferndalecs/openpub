@@ -192,12 +192,34 @@ pub struct Fill {
     /// Picture used as the fill.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<usize>,
+    /// A two-colour pattern: 8 × 8 dots, row by row from the top, as 16 hex digits; a set bit is
+    /// drawn in `color`, a clear one in `back`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub back: Option<String>,
 }
 
 impl Default for Fill {
     fn default() -> Self {
-        Fill { color: "#ffffff".into(), opacity: 1.0, color2: None, angle: 0.0, image: None }
+        Fill { color: "#ffffff".into(), opacity: 1.0, color2: None, angle: 0.0, image: None, pattern: None, back: None }
     }
+}
+
+/// The colour a pattern looks like from a distance (for programs that can't draw it).
+pub fn pattern_blend(f: &Fill) -> Option<String> {
+    let bits = u64::from_str_radix(f.pattern.as_deref()?, 16).ok()?;
+    let on = bits.count_ones() as f64 / 64.0;
+    let rgb = |c: &str| -> Option<[f64; 3]> {
+        let c = c.strip_prefix('#')?;
+        if c.len() != 6 {
+            return None;
+        }
+        Some([0, 2, 4].map(|i| u8::from_str_radix(&c[i..i + 2], 16).unwrap_or(0) as f64))
+    };
+    let (a, b) = (rgb(&f.color)?, rgb(f.back.as_deref().unwrap_or("#ffffff"))?);
+    let m = [0, 1, 2].map(|i| (a[i] * on + b[i] * (1.0 - on)).round() as u8);
+    Some(format!("#{:02x}{:02x}{:02x}", m[0], m[1], m[2]))
 }
 
 /// A picture border: eight pictures (top-left corner, top, top-right corner, right,

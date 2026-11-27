@@ -46,7 +46,7 @@ fn clean_colours(v: &mut serde_json::Value) {
     match v {
         serde_json::Value::Object(map) => {
             for (key, val) in map.iter_mut() {
-                if matches!(key.as_str(), "color" | "color2" | "background") {
+                if matches!(key.as_str(), "color" | "color2" | "background" | "back") {
                     if let serde_json::Value::String(s) = val {
                         let ok = s.len() == 7 && s.starts_with('#') && s[1..].bytes().all(|b| b.is_ascii_hexdigit());
                         if !ok {

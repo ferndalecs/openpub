@@ -492,6 +492,26 @@ impl<'a> Conv<'a> {
         made
     }
 
+    /// The 8 × 8 dots of a pattern fill's bitmap as 16 hex digits: the light dots are the fill
+    /// colour (set), the dark ones the second colour (measured against Publisher: probe-background p4).
+    fn pattern_bits(&self, pib: u32) -> Option<String> {
+        let (bytes, _) = self.esc.blips.get((pib as usize).checked_sub(1)?)?.as_ref()?;
+        let img = image::load_from_memory(bytes).ok()?.into_luma8();
+        if img.width() < 8 || img.height() < 8 {
+            return None;
+        }
+        let mut bits: u64 = 0;
+        for y in 0..8 {
+            for x in 0..8 {
+                bits <<= 1;
+                if img.get_pixel(x, y)[0] >= 128 {
+                    bits |= 1;
+                }
+            }
+        }
+        Some(format!("{bits:016x}"))
+    }
+
     fn fill(&mut self, s: &EShape, default_on: bool) -> Option<Fill> {
         let bools = s.props.get(&0x1bf).copied();
         let filled = match bools {
@@ -518,6 +538,12 @@ impl<'a> Conv<'a> {
             }
         } else if fill_type == 3 || fill_type == 2 {
             f.image = s.props.get(&0x186).copied().and_then(|p| self.image(p));
+        } else if fill_type == 1 {
+            // a pattern: a small two-colour bitmap
+            if let Some(bits) = s.props.get(&0x186).copied().and_then(|p| self.pattern_bits(p)) {
+                f.pattern = Some(bits);
+                f.back = Some(s.props.get(&0x183).and_then(|v| self.color(*v)).unwrap_or_else(|| "#ffffff".into()));
+            }
         }
         Some(f)
     }
@@ -990,7 +1016,7 @@ pub fn load(path: &std::path::Path) -> Result<Document, String> {
         let master = p.master.and_then(|m| masters.get(&m));
         let back = p.background.or(master.and_then(|m| m.background)).and_then(|seq| by_seq.get(&seq));
         if let Some(f) = back.and_then(|sh| cv.fill(sh, true)) {
-            if f.color2.is_some() || f.image.is_some() {
+            if f.color2.is_some() || f.image.is_some() || f.pattern.is_some() {
                 page.background_fill = Some(f);
             } else if !f.color.eq_ignore_ascii_case("#ffffff") {
                 page.background = Some(f.color);

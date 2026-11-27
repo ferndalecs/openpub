@@ -920,6 +920,10 @@ impl<'a> Exporter<'a> {
                 format!("<a:srgbClr val=\"{}\"/>", hex(c))
             }
         };
+        // (a pattern of OpenPub's own: Word gets the colour it looks like from a distance)
+        if let Some(blend) = crate::model::pattern_blend(f) {
+            return format!("<a:solidFill>{}</a:solidFill>", col(&blend));
+        }
         if let Some(c2) = &f.color2 {
             // model: 0 degrees runs bottom to top, clockwise; DrawingML: 0 runs left to right
             let ang = (f.angle - 90.0).rem_euclid(360.0);
