@@ -260,6 +260,11 @@ main { flex: 1; display: flex; min-height: 0; }
 
 body.drag #view::after { content: "Drop to open"; position: absolute; inset: 12px; border: 2px dashed #fff; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 20px; background: rgba(15,110,95,.35); pointer-events: none; }
 
+#savebar { position: fixed; left: 50%; bottom: 44px; transform: translateX(-50%); z-index: 55; display: flex; align-items: center; gap: 10px; background: #fff7e0; color: #4a3b00; border: 1px solid #e2c766; border-radius: 8px; padding: 7px 8px 7px 14px; box-shadow: 0 4px 16px rgba(0,0,0,.18); font-size: 13px; }
+#savebar[hidden] { display: none; }
+#savebar button { height: 28px; border-radius: 5px; border: 1px solid var(--accent); padding: 0 12px; font: inherit; cursor: pointer; }
+#savebar button.primary { background: var(--accent); color: #fff; }
+#savebar #savebarx { border-color: transparent; background: none; font-size: 18px; padding: 0 6px; color: #6b5a10; }
 #notes { position: fixed; right: 14px; bottom: 14px; max-width: 440px; background: #2c2a26; color: #f1efe9; padding: 10px 14px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.4); font-size: 12.5px; line-height: 1.45; user-select: text; z-index: 60; }
 
 /* ---- the File screen ---------------------------------------------------------------------- */
@@ -317,7 +322,7 @@ body.drag #file::after { content: "Drop to open"; position: absolute; inset: 12p
 @media print {
   html, body { height: auto; }
   body { display: block; overflow: visible; background: #fff; }
-  #bar, #thumbs, #notes, #file, #status, #findbar, #masterbar, .selbox, .band, .ovf, .waedit, .pickpop { display: none !important; }
+  #bar, #thumbs, #notes, #savebar, #file, #status, #findbar, #masterbar, .selbox, .band, .ovf, .waedit, .pickpop { display: none !important; }
   .sheet .op-flow.op-blank::after { display: none !important; }
   main, #view { display: block; overflow: visible; }
   #pages { display: block; padding: 0; }

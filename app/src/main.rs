@@ -9,6 +9,7 @@ mod assoc;
 mod opub;
 mod pdf;
 mod recent;
+mod recovery;
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -41,6 +42,43 @@ struct State {
     testing: bool,
     /// While testing: the answer to "lose the unsaved changes?" (instead of asking).
     test_answer: bool,
+    /// The publication's name as shown ("Worksheet_8.pub", "Publication1").
+    name: String,
+    /// The recovery copy kept while there are unsaved changes (see recovery.rs).
+    recovery: Option<recovery::Active>,
+    /// Counts the times the copy was let go: a copy still being written for an older one is thrown away.
+    recovery_gen: u64,
+    autosave_busy: bool,
+    /// While testing: recovery copies are written only when a test asks for them.
+    autosave_test: bool,
+    /// Recovery copies written (for tests).
+    autosaves: u32,
+}
+
+/// Lets the current recovery copy go (the publication was saved, or closed on purpose).
+fn drop_recovery(state: &Mutex<State>) {
+    let mut st = state.lock().unwrap();
+    st.recovery_gen += 1;
+    if let Some(a) = st.recovery.take() {
+        recovery::discard(a);
+    }
+}
+
+/// Opens a recovery copy as the current publication, marked unsaved; this window keeps the copy
+/// from now on. Returns the name shown.
+fn recover(state: &Mutex<State>, file: &Path) -> Result<String, String> {
+    let (doc, meta) = recovery::read(file)?;
+    let name = if meta.name.is_empty() { "Recovered publication".to_string() } else { meta.name.clone() };
+    let (json, images) = page_json(doc, &name, meta.original.as_deref(), true)?;
+    drop_recovery(state);
+    let mut st = state.lock().unwrap();
+    st.json = Some(json);
+    st.images = images;
+    st.path = meta.original.clone();
+    st.name = name.clone();
+    st.dirty = true;
+    st.recovery = recovery::adopt(file);
+    Ok(name)
 }
 
 /// What to do once a save has finished.
@@ -66,6 +104,12 @@ enum UserEvent {
     AddPicture,
     /// A picture the person chose has been read (or couldn't be).
     PictureReady(Result<(Image, u32, u32), String>),
+    /// The page sent the publication for a recovery copy.
+    Autosave { doc: String },
+    /// A recovery copy has been written to a temporary file (or couldn't be).
+    Autosaved { generation: u64, file: PathBuf, result: Result<PathBuf, String> },
+    /// The page has loaded: offer any work left over from a window that closed unexpectedly.
+    Ready,
     Associate,
     /// Open a web or e-mail address in the person's browser, after asking.
     OpenLink(String),
@@ -117,7 +161,9 @@ fn serve(state: &Mutex<State>, request: Request<Vec<u8>>) -> Response<Cow<'stati
         "fonts.json" => respond("application/json; charset=utf-8", serde_json::to_string(openpub_core::fonts::families()).unwrap_or_else(|_| "[]".into()).into_bytes().into(), false),
         "state.json" if cfg!(debug_assertions) => {
             let st = state.lock().unwrap();
-            respond("application/json; charset=utf-8", format!("{{\"dirty\":{}}}", st.dirty).into_bytes().into(), false)
+            let rec = st.recovery.as_ref().map(|a| a.file.to_string_lossy().to_string());
+            let body = serde_json::json!({ "dirty": st.dirty, "recovery": rec, "autosaves": st.autosaves, "path": st.path });
+            respond("application/json; charset=utf-8", body.to_string().into_bytes().into(), false)
         }
         "doc.json" => {
             let st = state.lock().unwrap();
@@ -145,13 +191,23 @@ fn is_opub(path: &Path) -> bool {
 
 /// Reads a `.pub` or `.opub` file: the document as JSON for the page, and its pictures.
 fn load(path: &Path) -> Result<(String, Vec<Image>), String> {
-    let mut doc = if is_opub(path) { opub::read(path)? } else { openpub_core::pubfile::load(path)? };
+    let doc = if is_opub(path) { opub::read(path)? } else { openpub_core::pubfile::load(path)? };
+    page_json(doc, &file_name(path), Some(path), false)
+}
+
+/// A document as JSON for the page (`recovered`: from a recovery copy, so unsaved), and its pictures.
+fn page_json(mut doc: Document, name: &str, path: Option<&Path>, recovered: bool) -> Result<(String, Vec<Image>), String> {
     let images = std::mem::take(&mut doc.images);
     let mut value = serde_json::to_value(&doc).map_err(|e| e.to_string())?;
     // the page only needs to know how many pictures there are
     value["images"] = serde_json::Value::Array(images.iter().map(|i| serde_json::json!({ "mime": i.mime, "orientation": i.orientation })).collect());
-    value["name"] = file_name(path).into();
-    value["path"] = path.to_string_lossy().to_string().into();
+    value["name"] = name.into();
+    if let Some(p) = path {
+        value["path"] = p.to_string_lossy().to_string().into();
+    }
+    if recovered {
+        value["recovered"] = true.into();
+    }
     Ok((value.to_string(), images))
 }
 
@@ -277,6 +333,7 @@ fn main() -> wry::Result<()> {
         }
     };
 
+    let initial_path = initial.clone();
     if let Some(p) = initial {
         let _ = proxy.send_event(UserEvent::Open { path: p, asked: false });
     }
@@ -306,9 +363,34 @@ fn main() -> wry::Result<()> {
             == rfd::MessageDialogResult::Yes
     };
 
+    // "Recover the changes?" - Some(true): recover, Some(false): delete the copy, None: not now
+    let ask_recover = |state: &Mutex<State>, window: &tao::window::Window, name: &str, time: u64| -> Option<bool> {
+        {
+            let st = state.lock().unwrap();
+            if st.testing {
+                return Some(st.test_answer);
+            }
+        }
+        // (Windows shows its own Yes / No / Cancel buttons: the question says what each does)
+        let answer = rfd::MessageDialog::new()
+            .set_parent(window)
+            .set_title("OpenPub - recover unsaved changes")
+            .set_level(rfd::MessageLevel::Warning)
+            .set_description(format!("OpenPub closed before the changes to \u{201c}{name}\u{201d} were saved. A copy of them was kept at {}.\n\nRecover the changes?\n\nYes \u{2013} open the changes now\nNo \u{2013} delete the copy\nCancel \u{2013} decide later (the copy is kept)", recovery::when(time)))
+            .set_buttons(rfd::MessageButtons::YesNoCancel)
+            .show();
+        match answer {
+            rfd::MessageDialogResult::Yes => Some(true),
+            rfd::MessageDialogResult::No => Some(false),
+            _ => None,
+        }
+    };
+    let initial_given = initial_path.is_some();
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
         match event {
+            Event::LoopDestroyed => drop_recovery(&state),
             Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
                 if !state.lock().unwrap().dirty {
                     *control_flow = ControlFlow::Exit;
@@ -359,8 +441,10 @@ fn main() -> wry::Result<()> {
             }
             Event::UserEvent(UserEvent::Loaded { path, result }) => match result {
                 Ok((json, images)) => {
+                    drop_recovery(&state);
                     {
                         let mut st = state.lock().unwrap();
+                        st.name = file_name(&path);
                         st.json = Some(json);
                         st.images = images;
                         st.path = Some(path.clone());
@@ -371,6 +455,22 @@ fn main() -> wry::Result<()> {
                         recent::add(&path);
                     }
                     let _ = webview.evaluate_script("window.OpenPubApp && OpenPubApp.reload()");
+                    // changes to this publication left over from a window that closed unexpectedly
+                    let left = recovery::beside(&path).filter(|f| recovery::is_orphan(f)).or_else(|| recovery::orphans().into_iter().find(|(_, m)| m.original.as_deref() == Some(path.as_path())).map(|(f, _)| f));
+                    if let Some(f) = left {
+                        let time = recovery::read(&f).map(|(_, m)| m.time).unwrap_or(0);
+                        match ask_recover(&state, &window, &file_name(&path), time) {
+                            Some(true) => match recover(&state, &f) {
+                                Ok(name) => {
+                                    window.set_title(&format!("{name} – OpenPub"));
+                                    let _ = webview.evaluate_script("window.OpenPubApp && OpenPubApp.reload()");
+                                }
+                                Err(e) => error(&webview, &format!("The copy couldn't be recovered: {e}")),
+                            },
+                            Some(false) => recovery::delete(&f),
+                            None => {}
+                        }
+                    }
                     if let Some(js) = test_script.take() {
                         // test scripts write their results to out/ under the current directory
                         let out = std::env::current_dir().map(|d| d.join("out").to_string_lossy().replace('\\', "/") + "/").unwrap_or_else(|_| "out/".into());
@@ -393,8 +493,10 @@ fn main() -> wry::Result<()> {
                 }
                 untitled += 1;
                 let name = format!("Publication{untitled}");
+                drop_recovery(&state);
                 {
                     let mut st = state.lock().unwrap();
+                    st.name = name.clone();
                     st.json = Some(blank(width.clamp(36.0, 14400.0), height.clamp(36.0, 14400.0), &name, template.as_deref()));
                     st.images = Vec::new();
                     st.path = None;
@@ -429,9 +531,11 @@ fn main() -> wry::Result<()> {
                 };
                 match result {
                     Ok(()) => {
+                        drop_recovery(&state);
                         {
                             let mut st = state.lock().unwrap();
                             st.path = Some(target.clone());
+                            st.name = file_name(&target);
                             st.dirty = false;
                         }
                         window.set_title(&format!("{} – OpenPub", file_name(&target)));
@@ -447,6 +551,65 @@ fn main() -> wry::Result<()> {
                 }
             }
             Event::UserEvent(UserEvent::Quit) => *control_flow = ControlFlow::Exit,
+            Event::UserEvent(UserEvent::Autosave { doc }) => {
+                let job = {
+                    let mut st = state.lock().unwrap();
+                    if !st.dirty || st.autosave_busy || (st.testing && !st.autosave_test) || st.json.is_none() {
+                        return;
+                    }
+                    if st.recovery.is_none() {
+                        st.recovery = recovery::start(st.path.as_deref());
+                    }
+                    let Some(file) = st.recovery.as_ref().map(|a| a.file.clone()) else { return };
+                    st.autosave_busy = true;
+                    let meta = recovery::Meta { name: st.name.clone(), original: st.path.clone(), time: recovery::now() };
+                    (st.images.clone(), meta, file, st.recovery_gen)
+                };
+                let (images, meta, file, generation) = job;
+                let proxy = proxy.clone();
+                std::thread::spawn(move || {
+                    let result = std::panic::catch_unwind(|| document_from(&doc, &images).and_then(|d| recovery::write_temp(&d, &meta, &file))).unwrap_or_else(|_| Err("couldn't write the copy".into()));
+                    let _ = proxy.send_event(UserEvent::Autosaved { generation, file, result });
+                });
+            }
+            Event::UserEvent(UserEvent::Autosaved { generation, file, result }) => {
+                let mut st = state.lock().unwrap();
+                st.autosave_busy = false;
+                match result {
+                    // (only if the copy is still wanted: the publication may have been saved meanwhile)
+                    Ok(tmp) if generation == st.recovery_gen && st.recovery.as_ref().map(|a| a.file == file).unwrap_or(false) => {
+                        if recovery::finish(&tmp, &file).is_ok() {
+                            recovery::index_add(&file);
+                            st.autosaves += 1;
+                        }
+                    }
+                    Ok(tmp) => {
+                        let _ = std::fs::remove_file(tmp);
+                    }
+                    // (tried again with the next change)
+                    Err(_) => {}
+                }
+            }
+            Event::UserEvent(UserEvent::Ready) => {
+                // work left over from a window that closed unexpectedly (when no file was named:
+                // a named file's own copy is offered when it opens)
+                if initial_given || state.lock().unwrap().testing {
+                    return;
+                }
+                if let Some((f, meta)) = recovery::orphans().into_iter().next() {
+                    match ask_recover(&state, &window, &meta.name, meta.time) {
+                        Some(true) => match recover(&state, &f) {
+                            Ok(name) => {
+                                window.set_title(&format!("{name} – OpenPub"));
+                                let _ = webview.evaluate_script("window.OpenPubApp && OpenPubApp.reload()");
+                            }
+                            Err(e) => error(&webview, &format!("The copy couldn't be recovered: {e}")),
+                        },
+                        Some(false) => recovery::delete(&f),
+                        None => {}
+                    }
+                }
+            }
             Event::UserEvent(UserEvent::ExportDocx { doc, forced }) => {
                 let Some(target) = forced.or_else(|| export_target(&state, &window, "Export as a Word document", "Word documents", "docx")) else { return };
                 let result = {
@@ -622,6 +785,11 @@ fn on_message(body: &str, state: &Mutex<State>, proxy: &EventLoopProxy<UserEvent
         },
         Some("ready") => {
             page_ready.store(true, Ordering::SeqCst);
+            UserEvent::Ready
+        }
+        Some("autosave") => UserEvent::Autosave { doc: doc() },
+        Some("autosaveTest") if cfg!(debug_assertions) => {
+            state.lock().unwrap().autosave_test = true;
             return;
         }
         // test aids: answer "lose the changes?", open any file, report the program's state

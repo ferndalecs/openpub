@@ -75,6 +75,11 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
   * Undo/redo with Ctrl+Z / Ctrl+Y.
 * **Save** to OpenPub's own format, `.opub` (a zip with `document.json` and the pictures).
   OpenPub does not write `.pub` files: the original is never modified.
+* **Recovery copies**: while there are unsaved changes, a copy is written every 30 seconds (a
+  hidden `~$<name>.recovery.opub` next to the publication, or in `%LOCALAPPDATA%\OpenPub\recovery`
+  for a new or read-only one). If OpenPub or the computer stops before the work is saved, the
+  next time the publication (or OpenPub) is opened it offers the changes back. Saving or closing
+  normally removes the copy. A new publication not saved after 5 minutes gets a reminder.
 * **Export** to PDF (real text, the publication's page size), a PNG picture of a page, to a Word document (`.docx`:
   editable text boxes - linked where Publisher links them -, real Word numbering, tables,
   pictures with their adjustments, Office shapes, WordArt as Word text effects, shadows, links
@@ -123,8 +128,8 @@ OpenPub opens files other people made, so it treats them as untrusted:
 * Links on objects open only after a question, and only `http`, `https` and `mailto` addresses.
   Nothing embedded in a document is ever run.
 * WebView2 keeps its working files in `%LOCALAPPDATA%\OpenPub\WebView2`, the recent-files list
-  and settings in `%LOCALAPPDATA%\OpenPub`. The program writes nowhere else unless asked to
-  save or export.
+  and settings in `%LOCALAPPDATA%\OpenPub`. Apart from the recovery copies described above,
+  the program writes nowhere else unless asked to save or export.
 * `python tools/fuzz.py` damages copies of sample files in thousands of ways and checks the
   reader never crashes or hangs on them.
 * `cargo audit` checks the Rust dependencies against the RustSec advisory database;
@@ -162,7 +167,8 @@ setup, `tools/extratest.js` for WordArt, effects, links, table styles, picture a
 the page picture and the designs, `tools/wraptest.js` for editing text that flows round a
 shape, `tools/safetytest.js` for not losing unsaved work, `tools/linktest.js` for linked text boxes
 and text positions, `tools/texttest.js` for the font and size lists, WordArt typed on the page and
-text that doesn't fit); results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the
+text that doesn't fit). `tools/rectest.ps1` checks recovery copies: a window is killed mid-work
+and the next one must offer the changes back.; results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the
 feature samples to Word, opens each in Word and compares them with Publisher's pages;
 `tools/docx-open.ps1` checks that Word accepts an exported document and lists its links.
 

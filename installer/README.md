@@ -135,6 +135,22 @@ $v = (Get-ItemProperty 'HKLM:\SOFTWARE\OpenPub' -ErrorAction SilentlyContinue).V
 if ($v -and [version]$v -ge [version]'0.1.0') { 'Installed' }
 ```
 
+## Recovery copies (what OpenPub writes on its own)
+
+While a publication has unsaved changes, OpenPub writes a recovery copy every 30 seconds so work
+isn't lost if the program or the PC stops:
+
+* next to the publication, as a hidden file `~$<file name>.recovery.opub` (plus a `.lock` file
+  while the window is open) - chosen because pupil profiles may be wiped at log-off, while the
+  folder holding the work (home drive, shared area) usually survives;
+* for a new publication never saved, or one in a folder the user can't write to, in
+  `%LOCALAPPDATA%\OpenPub\recovery`.
+
+Saving, or closing the window normally, removes the copy. A copy left by a crash is offered back
+the next time that publication - or OpenPub - is opened, and removed if the user says No. If
+these hidden `~$` files are a problem on shared drives, tell us: the location could be made a
+setting.
+
 ## WebView2 Runtime
 
 OpenPub needs the **Microsoft Edge WebView2 Runtime** (Evergreen). It is part of Windows 11 and is

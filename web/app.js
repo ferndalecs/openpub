@@ -331,7 +331,51 @@
 
   // ---- undo --------------------------------------------------------------------------------
 
+  // ---- recovery copies -----------------------------------------------------------------------------
+  // While there are unsaved changes the publication is sent for a recovery copy (recovery.rs):
+  // 5 seconds after the first change, then at most every 30 seconds.
+  let autosaveTimer = 0, lastAutosave = 0;
+  function scheduleAutosave() {
+    if (autosaveTimer || !doc) return;
+    const wait = lastAutosave ? Math.max(5000, 30000 - (Date.now() - lastAutosave)) : 5000;
+    autosaveTimer = setTimeout(autosaveNow, wait);
+  }
+  function autosaveNow() {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = 0;
+    if (!doc || !dirty) return;
+    if (drag || busy) { scheduleAutosave(); return; }
+    lastAutosave = Date.now();
+    send({ cmd: 'autosave', doc: docJsonLive() });
+  }
+  /** The publication as JSON with the text being typed in it, without ending the typing. */
+  function docJsonLive() {
+    if (!editing || editing.owner._commit) return JSON.stringify(doc);
+    const o = editing.owner, keep = o.paras;
+    try {
+      o.paras = readFlow(editing.flow, keep);
+      return JSON.stringify(doc);
+    } finally {
+      o.paras = keep;
+    }
+  }
+  // A new publication not saved after 5 minutes of work: a reminder (once, or again after "later").
+  let unsavedSince = 0, remindAfter = 5 * 60000;
+  function checkUnsaved() {
+    const show = !!doc && !doc.path && dirty && unsavedSince && Date.now() - unsavedSince > remindAfter && $('file').hidden;
+    $('savebar').hidden = !show;
+  }
+  setInterval(checkUnsaved, 20000);
+
   function setDirty(v) {
+    if (v) {
+      scheduleAutosave();
+      if (!unsavedSince) unsavedSince = Date.now();
+    } else {
+      unsavedSince = 0;
+      remindAfter = 5 * 60000;
+      $('savebar').hidden = true;
+    }
     if (dirty === v) return;
     dirty = v;
     send({ cmd: 'dirty', value: v });
@@ -3864,9 +3908,14 @@
     cellSel = null;
     cropMode = false;
     clip = null;
-    undoStack = [];
-    redoStack = [];
+    undoStack.length = 0;
+    redoStack.length = 0;
     dirty = false;
+    clearTimeout(autosaveTimer);
+    autosaveTimer = 0;
+    lastAutosave = 0;
+    unsavedSince = 0;
+    $('savebar').hidden = true;
     if (masterMode) setMasterMode(false);
     nextSeq = Math.max(1000000, maxSeq(doc) + 1);
     hideSel();
@@ -3881,7 +3930,12 @@
     build();
     view.scrollTop = 0;
     setCurrent(0, true);
-    showNotes(doc.notes);
+    if (data.recovered) {
+      delete doc.recovered;
+      dirty = false;
+      setDirty(true);
+      showNotes([`Your unsaved changes to ${data.name} were recovered. Save them to keep them.`].concat(doc.notes || []), 10000);
+    } else showNotes(doc.notes);
     updateButtons();
     syncToolbar();
     view.focus();
@@ -3891,8 +3945,13 @@
     commitEdit();
     return JSON.stringify(doc);
   }
+  let pubSaveNoted = false;
   function save(as) {
     if (!doc) return;
+    if (!pubSaveNoted && /\.pub$/i.test(doc.path || '')) {
+      pubSaveNoted = true;
+      showNotes(['OpenPub saves your work as a new OpenPub (.opub) file. Your Publisher file is left as it was.'], 9000);
+    }
     send({ cmd: as ? 'saveAs' : 'save', doc: docJson() });
   }
 
@@ -3980,6 +4039,8 @@
   on('addwa', addWordArt);
   on('waedit', () => sel && sel.shape && sel.shape.wordart && editWordArt(sel.page, sel.shape));
   on('fitbox', fitBoxToText);
+  on('savebarsave', () => { $('savebar').hidden = true; save(false); });
+  on('savebarx', () => { $('savebar').hidden = true; remindAfter += 10 * 60000; });
   on('fittext', shrinkTextToFit);
   onChange('wastyle', (v) => setWordArt(null, parseInt(v, 10)));
   onChange('graddir', (v) => setGradient(v === '' ? null : parseFloat(v)));
@@ -4330,6 +4391,7 @@
       replacePicture, setCropMode, cropTo, setCropSide, copySel, pasteClip, handlePaste, setMasterMode, showTab, syncToolbar,
       quiet: (v) => { quiet = !!v; }, toLocal, gridHit, rowEdges,
       clean: () => setDirty(false),
+      autosaveNow, docJsonLive, checkUnsaved, setUnsavedSince: (t) => { unsavedSince = t; },
       editWordArt, endWordArt, fitBoxToText, shrinkTextToFit, overflowing, openPick, closePick, applyPick,
       pickRows: () => pick.rows.map((d) => d.dataset.v), systemFonts: () => systemFonts, loadSystemFonts,
     },

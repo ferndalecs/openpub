@@ -22,7 +22,11 @@ fn write(paths: &[PathBuf]) {
     }
     let names: Vec<String> = paths.iter().map(|p| p.to_string_lossy().to_string()).collect();
     if let Ok(text) = serde_json::to_string_pretty(&names) {
-        let _ = std::fs::write(file, text);
+        // (written whole, then put in place: another window reading it never sees half a list)
+        let tmp = file.with_extension(format!("json.{}.tmp", std::process::id()));
+        if std::fs::write(&tmp, text).is_ok() && std::fs::rename(&tmp, &file).is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
     }
 }
 
