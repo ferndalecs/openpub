@@ -25,8 +25,11 @@ const change = (id, v) => { $(id).value = v; $(id).dispatchEvent(new Event('chan
   T.showTab('insert');
   $('addwa').click();
   await wait(300);
-  check('WordArt is added and its text box has the focus', last().wordart && last().wordart.text === 'Your text' && !$('wagrp').hidden && document.activeElement === $('watext'));
-  change('watext', 'Sports Day');
+  const waBox = document.querySelector('.waedit');
+  check('WordArt is added and the box for its words has the focus', last().wordart && last().wordart.text === 'Your text' && !$('wagrp').hidden && document.activeElement === waBox);
+  waBox.value = 'Sports Day';
+  waBox.dispatchEvent(new Event('input', { bubbles: true }));
+  waBox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   await wait(250);
   check('typing changes the text', last().wordart.text === 'Sports Day' && el(last()).querySelector('svg text').textContent === 'Sports Day');
   change('wastyle', '144');

@@ -49,14 +49,19 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
   * Shapes: select (click, Shift+click or drag a box for several, Ctrl+A for all), move, resize,
     rotate (handle, exact angle, ±90°), nudge with the arrow keys, duplicate, delete, cut/copy/
     paste, group/ungroup, bring to front/send to back, exact position and size in cm.
-  * Text: double-click to type (also in table cells and linked text boxes, where the text flows
-    on through the chain); font, size (and larger/smaller steps), bold/italic/underline,
+  * Text: double-click to type, or select a box and just start typing (also in table cells and
+    linked text boxes, where the text flows on through the chain); spelling checked as you type;
+    font (a list of the computer's fonts, each shown in its own lettering, with the
+    publication's and recently used fonts first) and size (a list, or type any size), larger/smaller
+    steps, bold/italic/underline,
     strikethrough, superscript/subscript, colour, alignment, bullets and numbering, indents,
-    line and paragraph spacing; text-box margins, vertical alignment and columns.
+    line and paragraph spacing; text-box margins, vertical alignment and columns. A red marker
+    shows a box whose text doesn't all fit; Make box fit text and Shrink text to fit fix it.
   * Find & Replace (Ctrl+F / Ctrl+H) across the whole publication, with Match case, Replace and
     Replace All (one undo step).
   * Shapes and pictures: a gallery of about 60 shapes (basic shapes, block arrows, flowchart,
-    stars and banners, callouts); WordArt (text, font, straight/arched/wavy/slanted); fill colour,
+    stars and banners, callouts); WordArt (words typed on the page - double-click it - font,
+    straight/arched/wavy/slanted); fill colour,
     two-colour gradient and transparency, outline colour/width/dash, shadow; align objects with
     each other or the page, flip; a link to a web or e-mail address (Ctrl+click opens it, after
     asking); replace a picture, crop it with handles or by percentages, brightness, contrast,
@@ -156,7 +161,8 @@ Replace and the text buttons, `tools/pagetest.js` for the shapes gallery, align/
 setup, `tools/extratest.js` for WordArt, effects, links, table styles, picture adjustments,
 the page picture and the designs, `tools/wraptest.js` for editing text that flows round a
 shape, `tools/safetytest.js` for not losing unsaved work, `tools/linktest.js` for linked text boxes
-and text positions); results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the
+and text positions, `tools/texttest.js` for the font and size lists, WordArt typed on the page and
+text that doesn't fit); results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the
 feature samples to Word, opens each in Word and compares them with Publisher's pages;
 `tools/docx-open.ps1` checks that Word accepts an exported document and lists its links.
 

@@ -113,6 +113,8 @@ fn serve(state: &Mutex<State>, request: Request<Vec<u8>>) -> Response<Cow<'stati
             respond("application/json; charset=utf-8", format!("{{\"askAssoc\":{ask}}}").into_bytes().into(), false)
         }
         "recent.json" => respond("application/json; charset=utf-8", recent::json().into_bytes().into(), false),
+        // the fonts installed on this computer, for the font list
+        "fonts.json" => respond("application/json; charset=utf-8", serde_json::to_string(openpub_core::fonts::families()).unwrap_or_else(|_| "[]".into()).into_bytes().into(), false),
         "state.json" if cfg!(debug_assertions) => {
             let st = state.lock().unwrap();
             respond("application/json; charset=utf-8", format!("{{\"dirty\":{}}}", st.dirty).into_bytes().into(), false)

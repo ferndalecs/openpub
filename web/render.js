@@ -1085,6 +1085,7 @@
     const flow = renderFlow(body.paras, ctx);
     ctx.noHyphen = false;
     flow.opOwner = owner;
+    if (ctx.editable && frame && frame.kind === 'text' && !owner.chain && body.paras.every((p) => p.runs.every((r) => !r.object && !/\S/.test(r.text)))) flow.classList.add('op-blank');
     // Centring and bottom alignment leave out the extra line spacing under the last line
     // (measured: tools/makeprobe4.ps1)
     if (body.valign === 'middle' || body.valign === 'bottom') {
@@ -1706,7 +1707,29 @@
         const r = first && first.getClientRects()[0];
         if (r && r.top + r.height * 0.75 > limit) para.style.visibility = 'hidden';
       }
+      box.opOverflow = textCutOff(box, flow, limit);
     }
+  }
+
+  /** Whether words in a text box are hidden because they don't fit: a paragraph left out, or
+   * its last line cut off at the bottom. (Not worked out for turned or flipped boxes, table
+   * cells, or a linked box whose text carries on in the next one.) */
+  function textCutOff(box, flow, limit) {
+    const el = box.closest('.op-shape');
+    const sh = el && el.opShape;
+    if (!sh || sh.rotation % 360 || sh.flip_h || sh.flip_v || box.closest('td')) return false;
+    if (flow.opOwner && flow.opOwner._range && flow.opOwner._range[1]) return false;
+    const words = (n) => /\S/.test(n.textContent.replace(/[\u00AD\u2060]/g, ''));
+    for (const para of flow.children) {
+      if (!para.classList.contains('op-para') || !words(para)) continue;
+      if (para.style.visibility === 'hidden') return true;
+      const spans = [...para.querySelectorAll('span')].filter((s) => !s.classList.contains('op-wrap') && words(s));
+      const last = spans[spans.length - 1];
+      const rs = last ? last.getClientRects() : [];
+      const r = rs[rs.length - 1];
+      if (r && r.top + r.height * 0.75 > limit) return true;
+    }
+    return false;
   }
 
   // ---- pages -------------------------------------------------------------------------------

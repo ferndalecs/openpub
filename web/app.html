@@ -115,9 +115,8 @@
       <div class="grp" role="group" aria-label="Font">
         <div class="gb col">
           <div class="r">
-            <input id="font" list="fontlist" title="Font" aria-label="Font" placeholder="Font" spellcheck="false">
-            <datalist id="fontlist"></datalist>
-            <input id="size" type="number" min="1" max="999" step="0.5" title="Font size (points)" aria-label="Font size">
+            <input id="font" class="picker" title="Font - click for the list, or type a name" aria-label="Font" placeholder="Font" spellcheck="false" autocomplete="off" role="combobox" aria-expanded="false">
+            <input id="size" class="picker" type="text" inputmode="decimal" title="Font size in points - click for the list, or type a size" aria-label="Font size" autocomplete="off" role="combobox" aria-expanded="false">
             <button id="grow" title="Larger text (Ctrl+Shift+>)" aria-label="Larger text"><span class="fa">A</span><span class="fs">▲</span></button>
             <button id="shrink" title="Smaller text (Ctrl+Shift+<)" aria-label="Smaller text"><span class="fa small">A</span><span class="fs">▼</span></button>
           </div>
@@ -357,9 +356,9 @@
       </div>
       <div class="grp" role="group" aria-label="WordArt" id="wagrp" hidden>
         <div class="gb col">
-          <div class="r"><input id="watext" type="text" title="WordArt text" aria-label="WordArt text" placeholder="Text" spellcheck="false"></div>
+          <div class="r"><button id="waedit" class="ib" title="Change the words (or double-click the WordArt on the page)"><svg class="i"><use href="#i-text"/></svg>Edit text</button></div>
           <div class="r">
-            <input id="wafont" list="fontlist" title="WordArt font" aria-label="WordArt font" placeholder="Font" spellcheck="false">
+            <input id="wafont" class="picker" title="WordArt font - click for the list, or type a name" aria-label="WordArt font" placeholder="Font" spellcheck="false" autocomplete="off" role="combobox" aria-expanded="false">
             <select id="wastyle" title="WordArt shape" aria-label="WordArt shape">
               <option value="136">Straight</option>
               <option value="144">Arch up</option>
@@ -492,6 +491,13 @@
           <div class="r"><label class="fld" title="Space between columns (cm)">Spacing<input id="colgap" type="text" inputmode="decimal" aria-label="Space between columns in centimetres"></label></div>
         </div>
         <div class="gl">Columns</div>
+      </div>
+      <div class="grp" role="group" aria-label="Text that doesn't fit">
+        <div class="gb col">
+          <div class="r"><button id="fitbox" class="ib" title="Make the box taller or shorter so all its text shows"><svg class="i"><use href="#i-vm"/></svg>Make box fit text</button></div>
+          <div class="r"><button id="fittext" class="ib" title="Make the text smaller until it all fits in the box (not below 6 pt)"><span class="fa small">A</span><span class="fs">▼</span>Shrink text to fit</button></div>
+        </div>
+        <div class="gl">Fit</div>
       </div>
     </div>
 

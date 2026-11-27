@@ -44,6 +44,52 @@ fn installed() -> &'static HashMap<String, std::path::PathBuf> {
     })
 }
 
+/// The families of the fonts installed on this computer, as their names are written ("Arial",
+/// "Comic Sans MS"), sorted - for the editor's font list.
+pub fn families() -> &'static Vec<String> {
+    static FAMILIES: OnceLock<Vec<String>> = OnceLock::new();
+    FAMILIES.get_or_init(|| {
+        let mut out: Vec<String> = Vec::new();
+        #[cfg(windows)]
+        {
+            use winreg::RegKey;
+            use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+            let mut seen = std::collections::HashSet::new();
+            for hive in [HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER] {
+                let Ok(key) = RegKey::predef(hive).open_subkey(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts") else { continue };
+                for (name, _) in key.enum_values().flatten() {
+                    let base = name.split(" (").next().unwrap_or(&name);
+                    for part in base.split(" & ") {
+                        let fam = family_name(part.trim());
+                        // ("@" fonts are for vertical text)
+                        if fam.is_empty() || fam.starts_with('@') || fam.len() > 80 {
+                            continue;
+                        }
+                        if seen.insert(fam.to_lowercase()) {
+                            out.push(fam);
+                        }
+                    }
+                }
+            }
+        }
+        out.sort_by_key(|a| a.to_lowercase());
+        out
+    })
+}
+
+/// "Arial Bold Italic" -> "Arial": the family of a font face's name.
+fn family_name(face: &str) -> String {
+    let mut fam = face.to_string();
+    for w in ["bold italic", "bold", "italic", "oblique", "light", "semibold"] {
+        let n = fam.len().saturating_sub(w.len());
+        if fam.len() > w.len() && fam.is_char_boundary(n) && fam[n..].eq_ignore_ascii_case(w) {
+            fam.truncate(n);
+            fam = fam.trim().to_string();
+        }
+    }
+    fam
+}
+
 fn read_metrics(data: &[u8]) -> Option<FontMetrics> {
     let u16_at = |o: usize| data.get(o..o + 2).map(|b| u16::from_be_bytes([b[0], b[1]]));
     let i16_at = |o: usize| u16_at(o).map(|v| v as i16 as f64);

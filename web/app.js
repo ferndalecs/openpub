@@ -90,6 +90,7 @@
       showNotes([`Page ${s.index + 1} couldn't be drawn: ${e && e.message ? e.message : e}`]);
       return;
     }
+    markOverflow(s, wrap);
     // page items fade out while the master page is edited
     const pg = wrap.querySelector('.op-page');
     if (pg) for (const e of pg.children) if (e.opShape && !e.opShape.from_master) e.classList.add('op-own');
@@ -698,8 +699,15 @@
       } else if (sel.shapes.length > 1) t = sel.shapes.length + ' objects selected';
       else t = kindName(sel.shape) + (cropMode ? ' – cropping' : '');
     }
+    if (!text && waEdit) t = 'WordArt – type the words, then press Esc or click away';
     if (masterMode) t = 'Master page' + (t ? ' · ' + t : '');
     $('selinfo').textContent = t;
+    if (!text && sel && !cellSel && sel.shapes.some((s) => overflowing(sel.page, s))) {
+      const w = document.createElement('span');
+      w.className = 'warn';
+      w.textContent = " · Text doesn't fit";
+      $('selinfo').appendChild(w);
+    }
     updateSelGeom();
   }
   /** Where the selection is and how big, for the status bar. */
@@ -1044,6 +1052,7 @@
     if (!shape) return;
     const page = sheetEl.opSheet.index;
     if (cropMode) { setCropMode(false); return; }
+    if (shape.wordart) { editWordArt(page, shape); return; }
     select(page, shape);
     const td = e.target.closest('td');
     let flow = e.target.closest('.op-flow') || (td && td.querySelector('.op-flow'));
@@ -1235,7 +1244,7 @@
     // a page number is one unit: text typed next to it must not go inside it
     for (const f of flow.querySelectorAll('[data-field]')) f.contentEditable = 'false';
     flow.contentEditable = 'true';
-    flow.spellcheck = false;
+    flow.spellcheck = true;
     const box = flow.closest('.op-text');
     if (box) box.classList.add('editing');
     flow.focus({ preventScroll: true });
@@ -1523,8 +1532,7 @@
     addShape({ kind: 'shape', shape_type: 136, x: p.x, y: p.y, w, h, fill: { color: '#0f6e5f', opacity: 1 }, wordart: { text: 'Your text', font: 'Arial Black', size: 36, stretch: true } }, false);
     showTab('shape');
     syncToolbar();
-    $('watext').focus();
-    $('watext').select();
+    editWordArt(current, sel.shape);
   }
   function setWordArt(change, type) {
     editShapes((s) => {
@@ -1672,6 +1680,350 @@
     addShape({ kind: 'shape', shape_type: 1, x: m, y: m, w: doc.width - 2 * m, h: doc.height - 2 * m, line: { color: '#000000', width: 1.5 }, wrap: 'none' }, false);
   }
 
+
+
+  // ---- the font and size lists ---------------------------------------------------------------------
+  // A box to type in, with a list underneath: fonts each shown in their own lettering, sizes.
+  const FONT_SIZES = [8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 32, 36, 40, 48, 54, 60, 72, 96];
+  let systemFonts = null;
+  const recentFonts = [];
+  const pickEl = document.createElement('div');
+  pickEl.className = 'pickpop';
+  pickEl.id = 'pickpop';
+  pickEl.setAttribute('role', 'listbox');
+  pickEl.hidden = true;
+  document.body.appendChild(pickEl);
+  const pick = { input: null, rows: [], at: -1, start: '', applied: null, seen: null };
+  const fontCss = (n) => '"' + String(n).replace(/["\\]/g, '') + '", "Segoe UI", sans-serif';
+
+  async function loadSystemFonts() {
+    if (systemFonts) return systemFonts;
+    try {
+      const list = await (await fetch('fonts.json')).json();
+      systemFonts = Array.isArray(list) ? list.filter((n) => typeof n === 'string') : [];
+    } catch (e) {
+      systemFonts = [];
+    }
+    return systemFonts;
+  }
+  /** The fonts the publication uses. */
+  function docFonts() {
+    const names = new Set();
+    if (!doc) return [];
+    const walk = (s) => {
+      for (const o of owners(s)) for (const p of o.paras) for (const r of p.runs) if (r.font) names.add(r.font);
+      if (s.wordart && s.wordart.font) names.add(s.wordart.font);
+    };
+    for (const p of doc.pages) for (const s of p.shapes) walk(s);
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }
+  function pickKind(input) {
+    return input.id === 'size' ? 'size' : 'font';
+  }
+  function openPick(input, filter) {
+    pick.input = input;
+    pickEl.textContent = '';
+    pick.rows = [];
+    pick.at = -1;
+    if (pick.seen) pick.seen.disconnect();
+    // (each font is drawn in its own lettering only when its row scrolls into view)
+    pick.seen = new IntersectionObserver((list) => {
+      for (const e of list) if (e.isIntersecting && e.target.opFont) { e.target.style.fontFamily = fontCss(e.target.opFont); pick.seen.unobserve(e.target); }
+    }, { root: pickEl });
+    const head = (t) => pickEl.appendChild(mk('div', 'ph', t));
+    const row = (value, font) => {
+      const d = mk('div', 'pr', value);
+      d.dataset.v = value;
+      d.setAttribute('role', 'option');
+      if (font) { d.opFont = value; d.title = value; }
+      d.addEventListener('mousedown', (e) => { e.preventDefault(); choosePick(value); });
+      pickEl.appendChild(d);
+      pick.rows.push(d);
+      if (font) pick.seen.observe(d);
+    };
+    if (pickKind(input) === 'size') {
+      for (const s of FONT_SIZES) row(String(s));
+    } else {
+      const q = String(filter || '').trim().toLowerCase();
+      const match = (n) => !q || n.toLowerCase().includes(q);
+      const inDoc = docFonts().filter(match), rec = recentFonts.filter(match);
+      const all = (systemFonts || []).filter(match);
+      if (inDoc.length) { head('In this publication'); inDoc.forEach((n) => row(n, true)); }
+      if (rec.length) { head('Recently used'); rec.forEach((n) => row(n, true)); }
+      if (all.length) { head(systemFonts.length ? 'All fonts' : 'Fonts'); all.forEach((n) => row(n, true)); }
+      if (!pick.rows.length) pickEl.appendChild(mk('div', 'pe', q ? `No font called "${filter}" on this computer. Press Enter to use the name anyway.` : 'No fonts found.'));
+    }
+    const r = input.getBoundingClientRect();
+    pickEl.style.left = Math.max(4, Math.min(r.left, window.innerWidth - 270)) + 'px';
+    pickEl.style.top = r.bottom + 2 + 'px';
+    pickEl.style.minWidth = Math.max(r.width, pickKind(input) === 'size' ? 64 : 230) + 'px';
+    pickEl.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+    const cur = String(input.value).trim().toLowerCase();
+    const i = pick.rows.findIndex((d) => d.dataset.v.toLowerCase() === cur);
+    markPick(i >= 0 ? i : q0(filter) ? 0 : -1);
+  }
+  const q0 = (f) => !!String(f || '').trim();
+  function markPick(i) {
+    if (pick.rows[pick.at]) pick.rows[pick.at].classList.remove('at');
+    pick.at = i;
+    const d = pick.rows[i];
+    if (d) { d.classList.add('at'); d.scrollIntoView({ block: 'nearest' }); }
+  }
+  function closePick() {
+    if (pickEl.hidden) return;
+    pickEl.hidden = true;
+    if (pick.seen) pick.seen.disconnect();
+    if (pick.input) pick.input.setAttribute('aria-expanded', 'false');
+  }
+  /** Applies a font or size from the list or typed in the box. */
+  function applyPick(input, value) {
+    const v = String(value).trim();
+    if (!v) return;
+    pick.applied = v;
+    if (input.id === 'size') {
+      const n = parseFloat(v.replace(',', '.'));
+      if (n >= 1 && n <= 999) format({ size: Math.round(n * 2) / 2 });
+      else syncToolbar();
+      return;
+    }
+    const i = recentFonts.indexOf(v);
+    if (i >= 0) recentFonts.splice(i, 1);
+    recentFonts.unshift(v);
+    recentFonts.length = Math.min(recentFonts.length, 6);
+    if (input.id === 'wafont') setWordArt({ font: v });
+    else format({ font: v });
+  }
+  function choosePick(value) {
+    const input = pick.input;
+    if (!input) return;
+    input.value = value;
+    closePick();
+    applyPick(input, value);
+    input.blur();
+    if (!editing) view.focus({ preventScroll: true });
+  }
+  for (const input of document.querySelectorAll('input.picker')) {
+    input.addEventListener('focus', () => {
+      pick.start = input.value;
+      pick.applied = null;
+      input.select();
+      loadSystemFonts().then(() => { if (document.activeElement === input) openPick(input, ''); });
+    });
+    input.addEventListener('mousedown', () => { if (document.activeElement === input && pickEl.hidden) openPick(input, ''); });
+    input.addEventListener('input', () => { if (pickKind(input) === 'font') openPick(input, input.value); });
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (pickEl.hidden || pick.input !== input) openPick(input, '');
+        else markPick(Math.max(0, Math.min(pick.rows.length - 1, pick.at + (e.key === 'ArrowDown' ? 1 : -1))));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const d = !pickEl.hidden && pick.input === input && pick.rows[pick.at];
+        if (d && (pickKind(input) === 'font' || d.dataset.v === String(input.value).trim())) choosePick(d.dataset.v);
+        else { const v = input.value; closePick(); applyPick(input, v); input.blur(); if (!editing) view.focus({ preventScroll: true }); }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        input.value = pick.start;
+        closePick();
+        input.blur();
+        view.focus({ preventScroll: true });
+      } else if (e.key === 'Tab') closePick();
+    });
+    input.addEventListener('blur', () => {
+      closePick();
+      // a name or size typed and left: use it
+      const v = String(input.value).trim();
+      if (v && v !== pick.start && v !== pick.applied) applyPick(input, v);
+    });
+  }
+  window.addEventListener('resize', closePick);
+  view.addEventListener('scroll', closePick);
+
+  // ---- WordArt typed on the page ---------------------------------------------------------------
+  // The words go in a box on the page next to the WordArt, which follows as they are typed.
+  let waEdit = null;
+  function editWordArt(page, shape, typed) {
+    commitEdit();
+    endWordArt();
+    if (!shape || !shape.wordart || !sheets[page]) return;
+    if (current !== page) goTo(page);
+    select(page, shape);
+    renderSheet(sheets[page]);
+    const s = sheets[page];
+    const ta = document.createElement('textarea');
+    ta.className = 'waedit';
+    ta.setAttribute('aria-label', 'WordArt words');
+    ta.spellcheck = true;
+    ta.value = shape.wordart.text;
+    // under the WordArt (above it near the bottom of the page), as wide as it
+    const b = aabb(shape);
+    const w = Math.max(b.w, 150 / k());
+    const lines = Math.max(1, ta.value.split('\n').length);
+    const h = (Math.min(4, lines) * 26 + 16) / k();
+    const y = b.y + b.h + h + 6 / k() > doc.height ? b.y - h - 6 / k() : b.y + b.h + 6 / k();
+    ta.style.left = Math.max(0, b.x) * k() + 'px';
+    ta.style.top = Math.max(0, y) * k() + 'px';
+    ta.style.width = w * k() + 'px';
+    ta.style.height = h * k() + 'px';
+    ta.style.fontFamily = fontCss(shape.wordart.font);
+    ta.style.fontSize = '18px';
+    if (shape.wordart.bold) ta.style.fontWeight = 'bold';
+    if (shape.wordart.italic) ta.style.fontStyle = 'italic';
+    s.el.appendChild(ta);
+    const ed = { page, shape, ta, before: shape.wordart.text, timer: 0 };
+    waEdit = ed;
+    const changed = () => {
+      setDirty(true);
+      shape.wordart.text = ta.value.replace(/\r\n?/g, '\n') || ' ';
+      clearTimeout(ed.timer);
+      ed.timer = setTimeout(() => { if (waEdit === ed) { rerender(page); } }, 120);
+    };
+    ta.addEventListener('input', changed);
+    ta.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Escape' || e.key === 'Tab' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) {
+        e.preventDefault();
+        endWordArt();
+        view.focus({ preventScroll: true });
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && ta.value === ed.before) {
+        e.preventDefault();
+      }
+    });
+    ta.addEventListener('blur', () => setTimeout(() => { if (waEdit === ed && document.activeElement !== ta) endWordArt(); }, 0));
+    ta.focus({ preventScroll: true });
+    if (typed != null) {
+      ta.value = typed;
+      ta.setSelectionRange(typed.length, typed.length);
+      changed();
+    } else ta.select();
+    updateSelInfo('WordArt – type the words, then press Esc or click away');
+  }
+  function endWordArt() {
+    if (!waEdit) return;
+    const { page, shape, ta, before, timer } = waEdit;
+    waEdit = null;
+    clearTimeout(timer);
+    ta.remove();
+    const now = shape.wordart.text;
+    if (now !== before) {
+      // one undo step for the whole edit
+      shape.wordart.text = before;
+      pushUndo(page);
+      shape.wordart.text = now;
+    }
+    rerender(page);
+    updateSelInfo();
+    syncToolbar();
+  }
+
+  // ---- text that doesn't fit its box -------------------------------------------------------------
+  /** Red markers on the boxes whose text doesn't all show (editor only: not printed or exported). */
+  function markOverflow(s, wrap) {
+    for (const m of s.el.querySelectorAll('.ovf')) m.remove();
+    if (busy) return;
+    for (const box of wrap.querySelectorAll('.op-text')) {
+      if (!box.opOverflow) continue;
+      const el = box.closest('.op-shape');
+      const sh = el && el.opShape;
+      if (!sh) continue;
+      const m = document.createElement('button');
+      m.className = 'ovf';
+      m.textContent = '!';
+      m.title = "Some of the text doesn't fit in this box. Click to choose how to fix it.";
+      m.setAttribute('aria-label', "Text doesn't fit");
+      m.style.left = (sh.x + sh.w) * k() + 'px';
+      m.style.top = (sh.y + sh.h) * k() + 'px';
+      m.addEventListener('pointerdown', (e) => e.stopPropagation());
+      m.addEventListener('click', (e) => {
+        e.stopPropagation();
+        select(s.index, sh);
+        showTab('textbox');
+      });
+      s.el.appendChild(m);
+    }
+  }
+  function overflowing(page, sh) {
+    const el = shapeEl(page, sh);
+    return !!el && [...el.querySelectorAll('.op-text')].some((b) => b.opOverflow);
+  }
+  /** Shapes in the selection whose text can be fitted (not turned, not part of linked boxes). */
+  function fitTargets() {
+    if (!sel) return [];
+    const chains = OpenPub.storyChains(doc);
+    return sel.shapes.filter((s) => s.text && s.kind !== 'table' && !s.wordart && !(s.rotation % 360) && !chains.has(s.text.story));
+  }
+  /** Where the text of a box ends, in points below the top of the box (null if it has none). */
+  function textBottom(page, sh) {
+    const el = shapeEl(page, sh);
+    const flow = el && el.querySelector('.op-flow');
+    if (!flow) return null;
+    const top = el.getBoundingClientRect().top;
+    let bottom = null;
+    for (const span of flow.querySelectorAll('span')) {
+      if (span.classList.contains('op-wrap') || !/\S/.test(span.textContent.replace(/[\u00AD\u2060]/g, ''))) continue;
+      for (const r of span.getClientRects()) if (r.height) bottom = Math.max(bottom == null ? -Infinity : bottom, r.bottom);
+    }
+    return bottom == null ? null : (bottom - top) / k();
+  }
+  /** Makes each selected box as tall as its text. */
+  function fitBoxToText() {
+    const list = fitTargets();
+    if (!list.length) return;
+    commitEdit();
+    const page = sel.page;
+    pushUndo(page);
+    let off = false;
+    for (const sh of list) {
+      const keep = { h: sh.h, valign: sh.text.valign };
+      // laid out from the top in a very tall box, to see where the text ends
+      sh.text.valign = 'top';
+      sh.h = Math.max(sh.h, doc.height * 2);
+      rerender(page);
+      const end = textBottom(page, sh);
+      if (keep.valign === undefined) delete sh.text.valign; else sh.text.valign = keep.valign;
+      sh.h = end == null ? keep.h : Math.max(12, Math.ceil(end + (sh.text.margins ? sh.text.margins[3] : 0) + 2));
+      if (sh.y + sh.h > doc.height + 0.5) off = true;
+    }
+    rerender(page);
+    showSel();
+    syncToolbar();
+    if (off) showNotes(['The box now runs past the bottom of the page: move it up, or make the text smaller.'], 6000);
+  }
+  /** Makes the text of each selected box smaller, in half-point steps, until it all shows. */
+  function shrinkTextToFit() {
+    const list = fitTargets().filter((sh) => overflowing(sel.page, sh));
+    if (!list.length) { showNotes(['The text already fits.'], 3000); return; }
+    commitEdit();
+    const page = sel.page;
+    pushUndo(page);
+    let stuck = false;
+    for (const sh of list) {
+      const orig = clone(sh.text.paras);
+      const sizes = orig.flatMap((p) => p.runs.filter((r) => !r.object).map((r) => r.size || 11));
+      const max = Math.max(6.5, ...sizes);
+      const steps = Math.ceil((max - 6) / 0.5);
+      const apply = (n) => {
+        const f = (max - 0.5 * n) / max;
+        sh.text.paras = clone(orig);
+        for (const p of sh.text.paras) for (const r of p.runs) if (!r.object) r.size = Math.max(6, Math.round((r.size || 11) * f * 2) / 2);
+        rerender(page);
+        return !overflowing(page, sh);
+      };
+      // the fewest steps that make it fit
+      if (!apply(steps)) { stuck = true; continue; }
+      let lo = 1, hi = steps;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (apply(mid)) hi = mid; else lo = mid + 1;
+      }
+      apply(hi);
+    }
+    showSel();
+    syncToolbar();
+    if (stuck) showNotes(["Even at 6 pt the text doesn't fit: make the box bigger, or use Make box fit text."], 7000);
+  }
 
   // ---- linked text boxes ------------------------------------------------------------------------
   // A story can flow through several linked boxes, on several pages. The first box holds the
@@ -2106,7 +2458,7 @@
     if ($('linkpop').hidden) setv('linkurl', linked ? linked.link : '');
     const wa = sel && sel.shapes.length === 1 && sel.shape.wordart ? sel.shape : null;
     $('wagrp').hidden = !wa;
-    if (wa) { setv('watext', wa.wordart.text.replace(/\n/g, ' / ')); setv('wafont', wa.wordart.font); setv('wastyle', String(wa.shape_type)); }
+    if (wa) { setv('wafont', wa.wordart.font); setv('wastyle', String(wa.shape_type)); }
     // picture adjustments
     const picSel = selPicture();
     setv('picbri', picSel ? Math.round(picSel.brightness || 0) : '');
@@ -2204,6 +2556,8 @@
     en(['gx', 'gy', 'grot', 'rotl', 'rotr', 'rot0'], s);
     en(['gw', 'gh'], s && n === 1);
     en(['ml', 'mt', 'mr', 'mb', 'vt', 'vm', 'vb', 'ncols', 'colgap'], s && lv.some((x) => x.text));
+    en(['fitbox', 'fittext'], s && !busy && fitTargets().length > 0);
+    en(['waedit'], s && n === 1 && !!sel.shape.wordart);
     const ts = selTable();
     const cs = !!ts && !!cellSel && cellSel.shape === ts;
     en(['rowabove', 'rowbelow', 'colleft', 'colright', 'cellfill', 'cellnofill', 'cvt', 'cvm', 'cvb', 'ball', 'bout', 'bin', 'bnone', 'bcolor', 'bwidth'], !!ts && !busy);
@@ -3466,18 +3820,7 @@
   }
 
   function fillFonts() {
-    const names = new Set(['Arial', 'Calibri', 'Cambria', 'Century Gothic', 'Comic Sans MS', 'Consolas', 'Cooper Black', 'Courier New', 'Georgia', 'Impact', 'Segoe UI', 'Tahoma', 'Times New Roman', 'Trebuchet MS', 'Verdana']);
-    const walk = (s) => {
-      for (const o of owners(s)) for (const p of o.paras) for (const r of p.runs) if (r.font) names.add(r.font);
-    };
-    for (const p of doc.pages) for (const s of p.shapes) walk(s);
-    const dl = $('fontlist');
-    dl.textContent = '';
-    for (const n of [...names].sort((a, b) => a.localeCompare(b))) {
-      const o = document.createElement('option');
-      o.value = n;
-      dl.appendChild(o);
-    }
+    loadSystemFonts();
   }
 
   function maxSeq(d) {
@@ -3635,8 +3978,9 @@
   on('findbtn', () => showFind());
   // stage 5: WordArt, gradient, shadow, link, table style, picture adjustments
   on('addwa', addWordArt);
-  onChange('watext', (v) => setWordArt({ text: v.split(/\s*\/\s*/).join('\n') || ' ' }));
-  onChange('wafont', (v) => v.trim() && setWordArt({ font: v.trim() }));
+  on('waedit', () => sel && sel.shape && sel.shape.wordart && editWordArt(sel.page, sel.shape));
+  on('fitbox', fitBoxToText);
+  on('fittext', shrinkTextToFit);
   onChange('wastyle', (v) => setWordArt(null, parseInt(v, 10)));
   onChange('graddir', (v) => setGradient(v === '' ? null : parseFloat(v)));
   onChange('fill2', (v) => setGradient(undefined, v));
@@ -3793,8 +4137,7 @@
     if (!spreadOn()) spreadZoomed = false;
     relayout(true);
   });
-  $('font').addEventListener('change', (e) => e.target.value.trim() && format({ font: e.target.value.trim() }));
-  $('size').addEventListener('change', (e) => { const v = parseFloat(e.target.value); if (v >= 1 && v <= 999) format({ size: v }); });
+
   $('color').addEventListener('change', (e) => format({ color: e.target.value }));
   $('pageno').addEventListener('change', (e) => {
     const v = parseInt(e.target.value, 10);
@@ -3901,6 +4244,24 @@
       else if (masterMode) setMasterMode(false);
     } else if (cellSel && sel && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); clearCells(); }
     else if (sel && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); removeSelected(); }
+    else if (sel && e.key === 'Enter' && single() && sel.shape.wordart) { e.preventDefault(); editWordArt(sel.page, sel.shape); }
+    else if (sel && single() && !cellSel && !ctrl && !e.altKey && e.key.length === 1 && e.key !== ' ' && (sel.shape.wordart || sel.shape.kind === 'text' || sel.shape.kind === 'shape')) {
+      // a letter typed with a box selected goes into it (WordArt: its words are replaced)
+      e.preventDefault();
+      if (sel.shape.wordart) { editWordArt(sel.page, sel.shape, e.key); return; }
+      const page = sel.page, shape = sel.shape;
+      if (!shape.text) {
+        pushUndo(page);
+        shape.text = newTextBody();
+        rerender(page);
+      }
+      const el = shapeEl(page, shape);
+      const flow = el && el.querySelector('.op-flow');
+      if (flow && flow.opOwner) {
+        startEdit(page, shape, flow, null, { a: { p: 1e6, o: 1e9 }, b: { p: 1e6, o: 1e9 } });
+        document.execCommand('insertText', false, e.key);
+      }
+    }
     else if (sel && e.key === 'Enter' && single()) {
       const target = cellSel ? rangeCells(cellSel)[0] : null;
       const el = shapeEl(sel.page, sel.shape);
@@ -3969,6 +4330,8 @@
       replacePicture, setCropMode, cropTo, setCropSide, copySel, pasteClip, handlePaste, setMasterMode, showTab, syncToolbar,
       quiet: (v) => { quiet = !!v; }, toLocal, gridHit, rowEdges,
       clean: () => setDirty(false),
+      editWordArt, endWordArt, fitBoxToText, shrinkTextToFit, overflowing, openPick, closePick, applyPick,
+      pickRows: () => pick.rows.map((d) => d.dataset.v), systemFonts: () => systemFonts, loadSystemFonts,
     },
   };
 
