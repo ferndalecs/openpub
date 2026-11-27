@@ -8,6 +8,8 @@ For each page writes <out>/page-NNN-ours.png, -truth.png (cropped to the single 
 """
 import concurrent.futures, json, os, pathlib, subprocess, sys, tempfile
 from PIL import Image, ImageChops, ImageStat
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import quiet  # noqa: E402,F401  (Edge starts without a console window)
 
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 if not os.path.exists(EDGE):

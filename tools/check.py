@@ -12,6 +12,7 @@ import json, pathlib, subprocess, sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'tools'))
 from samples import samples  # noqa: E402
+import quiet  # noqa: E402,F401  (programs it starts open no console windows)
 
 args = sys.argv[1:]
 build = '--no-build' not in args

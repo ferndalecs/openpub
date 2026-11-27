@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use openpub_core::model::{Document, Image};
-use tao::dpi::LogicalSize;
+use tao::dpi::{LogicalSize, PhysicalPosition};
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
 use tao::window::{Icon, WindowBuilder};
@@ -302,7 +302,18 @@ fn main() -> wry::Result<()> {
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
     let icon = openpub_core::images::rgba(ICON_PNG).and_then(|(rgba, w, h)| Icon::from_rgba(rgba, w, h).ok());
-    let window = WindowBuilder::new().with_title("OpenPub").with_window_icon(icon).with_inner_size(LogicalSize::new(1360.0, 900.0)).build(&event_loop).expect("window");
+    let mut builder = WindowBuilder::new().with_title("OpenPub").with_window_icon(icon).with_inner_size(LogicalSize::new(1360.0, 900.0));
+    // development aid: a test run can put its window somewhere out of the way (another monitor)
+    // without taking the keyboard from whoever is working: OPENPUB_TEST_POS=x,y (screen pixels)
+    let quiet = testing && cfg!(debug_assertions) && std::env::var("OPENPUB_TEST_POS").is_ok();
+    if quiet {
+        let pos: Vec<i32> = std::env::var("OPENPUB_TEST_POS").unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();
+        if let [x, y] = pos[..] {
+            builder = builder.with_position(PhysicalPosition::new(x, y));
+        }
+        builder = builder.with_focused(false);
+    }
+    let window = builder.build(&event_loop).expect("window");
 
     let serve_state = state.clone();
     let ipc_state = state.clone();
@@ -321,6 +332,7 @@ fn main() -> wry::Result<()> {
         .with_navigation_handler(move |url| own_page(&url) && !nav_ready.load(Ordering::SeqCst))
         // browser keys (F5 reload, Ctrl+F browser find, Ctrl+P browser print...) are the program's own
         .with_browser_accelerator_keys(false)
+        .with_focused(!quiet)
         .with_new_window_req_handler(|_url, _features| wry::NewWindowResponse::Deny)
         .with_download_started_handler(|_url, _path| false)
         .with_custom_protocol("openpub".into(), move |_id, request| serve(&serve_state, request))

@@ -1587,7 +1587,9 @@
     const asc = (m.fontBoundingBoxAscent || 90) / 100, desc = (m.fontBoundingBoxDescent || 22) / 100;
     // the ink of capital letters, which WordArt stretches to fill the shape
     const ink = measureCanvas.measureText('HÉgjpÅ');
-    return { asc, desc, inkAsc: (ink.actualBoundingBoxAscent || 72) / 100, inkDesc: (ink.actualBoundingBoxDescent || 20) / 100, width: (t) => measureCanvas.measureText(t).width / 100 };
+    // the ink of particular words (above and below the baseline)
+    const inkOf = (t) => { const r = measureCanvas.measureText(t); return { a: (r.actualBoundingBoxAscent || 0) / 100, d: (r.actualBoundingBoxDescent || 0) / 100 }; };
+    return { asc, desc, inkAsc: (ink.actualBoundingBoxAscent || 72) / 100, inkDesc: (ink.actualBoundingBoxDescent || 20) / 100, width: (t) => measureCanvas.measureText(t).width / 100, inkOf };
   }
 
   // Baseline offset (as a fraction of the shape height) and slope along the text, for the
@@ -1618,7 +1620,13 @@
     // with a warp, the letters need room to move up and down
     const room = warp ? 0.85 : 1;
     const lineH = H * room / n;
-    const size = lineH / Math.max(0.5, m.inkAsc + m.inkDesc * 0.5);
+    // Publisher stretches the words' own ink to the shape's height: a word without descenders
+    // ("Chwaraeon", Cymru p28) has taller letters than one with them
+    const inks = lines.filter((l) => l.trim()).map((l) => m.inkOf(l));
+    const inkA = inks.length ? Math.max(...inks.map((q) => q.a)) : m.inkAsc;
+    const inkD = inks.length ? Math.max(...inks.map((q) => q.d)) : m.inkDesc * 0.5;
+    const inkH = inkA + inkD > 0.3 ? inkA + inkD : m.inkAsc + m.inkDesc * 0.5;
+    const size = lineH / Math.max(0.3, inkH);
     const widths = lines.map((l) => m.width(l) * size);
     const block = Math.max(1, ...widths);
     const sx = wa.stretch === false ? Math.min(1, W / block) : W / block;
@@ -1659,7 +1667,7 @@
       if (wa.italic) t.setAttribute('font-style', 'italic');
       t.setAttribute('xml:space', 'preserve');
       const x0 = (block - widths[i]) / 2;
-      const base = top + i * lineH + (lineH - (m.inkAsc + m.inkDesc * 0.5) * size) / 2 + m.inkAsc * size;
+      const base = top + i * lineH + (lineH - inkH * size) / 2 + (inkA + inkD > 0.3 ? inkA : m.inkAsc) * size;
       if (warp) {
         // place letter by letter along the bent baseline
         let x = x0;
@@ -1798,8 +1806,19 @@
       const svg = svgEl('svg', { class: 'op-svg' });
       const px = 96 / 72;
       const seen = new Set();
-      for (const { td, borders } of drawn) {
-        const x0 = td.offsetLeft, y0 = td.offsetTop, x1 = x0 + td.offsetWidth, y1 = y0 + td.offsetHeight;
+      // exact (fractional) cell edges, in the table's own unscaled pixels: whole-pixel offsets can
+      // put a cell's bottom a pixel away from the next one's top, drawing both (Year 7 p17)
+      // (a turned table is measured unturned)
+      const turn = wrap.style.transform;
+      if (turn) wrap.style.transform = 'none';
+      const wr = wrap.getBoundingClientRect();
+      const zoom = wrap.offsetWidth ? wr.width / wrap.offsetWidth : 1;
+      const edges = drawn.map(({ td }) => td.getBoundingClientRect());
+      if (turn) wrap.style.transform = turn;
+      for (let n = 0; n < drawn.length; n++) {
+        const { borders } = drawn[n];
+        const r = edges[n];
+        const x0 = (r.left - wr.left) / zoom, y0 = (r.top - wr.top) / zoom, x1 = (r.right - wr.left) / zoom, y1 = (r.bottom - wr.top) / zoom;
         const sides = [[x0, y0, x0, y1], [x0, y0, x1, y0], [x1, y0, x1, y1], [x0, y1, x1, y1]];
         for (let i = 0; i < 4; i++) {
           const b = borders[i];
