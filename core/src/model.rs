@@ -404,6 +404,9 @@ pub struct Run {
     /// Extra space after each character, in points (Publisher's "kerning": expand or condense).
     #[serde(skip_serializing_if = "is_zero")]
     pub kerning: f64,
+    /// Width of the characters as a factor (Publisher's "scaling": 0.5 = half as wide); 0 = normal.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub scale: f64,
     /// "page" for a page-number field
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field: Option<String>,

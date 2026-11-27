@@ -179,7 +179,7 @@ setup, `tools/extratest.js` for WordArt, effects, links, table styles, picture a
 the page picture and the designs, `tools/wraptest.js` for editing text that flows round a
 shape, `tools/safetytest.js` for not losing unsaved work, `tools/linktest.js` for linked text boxes
 and text positions, `tools/texttest.js` for the font and size lists, WordArt typed on the page and
-text that doesn't fit). `tools/booktest.js` covers pattern fills and booklets; `tools/bordertest.js` picture borders and 3-D WordArt. `tools/helptest.js` covers the help page, the table grid, the designs (all their text must
+text that doesn't fit). `tools/booktest.js` covers pattern fills and booklets; `tools/bordertest.js` picture borders and 3-D WordArt; `tools/gaptest.js` the marker on turned boxes, PDF links and pictures in shapes in Word. `tools/helptest.js` covers the help page, the table grid, the designs (all their text must
 fit), the page sizes and the tooltips. `tools/drawtest.js` covers drawing with the mouse, snapping,
 the right-click menu, colour swatches, arrowheads and pictures by paste and drop.
 `tools/rectest.ps1` checks recovery copies: a window is killed mid-work
@@ -200,11 +200,12 @@ feature samples to Word, opens each in Word and compares them with Publisher's p
     reproduced); multi-stop and preset gradients and textures come out flat or approximated.
   * BorderArt (picture borders) is drawn from the tiles stored in the file, on Windows. In the
     editor a picture border can be added (eight built-in designs, or one already in the
-    publication), resized or taken off; it isn't carried into the Word export. Gradients have two colours. Pattern fills (shapes
+    publication), resized or taken off. In the Word export it becomes a picture of the border
+    over its shape. Gradients have two colours. Pattern fills (shapes
     and page backgrounds) are drawn; in the Word export they become the colour they look like
     from a distance.
-  * Horizontal scaling of characters isn't drawn (strikethrough, small caps, all caps, outline,
-    emboss, engrave, tracking and kerning are).
+  * Strikethrough, small caps, all caps, outline, emboss, engrave, tracking, kerning and
+    character width scaling are drawn (scaled words aren't hyphenated).
   * Hyphenation uses English (UK) patterns for all text, so line breaks in other languages
     (e.g. Welsh) can differ from Publisher's.
   * When text doesn't fit a centred or bottom-aligned frame, Publisher drops the lines that
@@ -216,8 +217,8 @@ feature samples to Word, opens each in Word and compares them with Publisher's p
   box of its own holding the text the original shows; deleting the page with the first box of a
   linked story empties the rest of the story (Undo brings it back).
 * Word export: Word lays text out itself, so line breaks can differ from Publisher's; wrapping
-  around shapes is approximated per paragraph, on one side of a shape. BorderArt and a picture
-  shown inside a shape aren't carried into the Word file; links aren't clickable in the PDF.
+  around shapes is approximated per paragraph, on one side of a shape (Word can't make text in a
+  text box flow round another object). Links on objects are clickable in exported PDFs.
 * Saving back to `.pub` is not supported.
 
 ## Contributing

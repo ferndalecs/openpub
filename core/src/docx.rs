@@ -7,7 +7,7 @@
 //! shape's fill, outline and shadow as Word 2010 text effects. Office shape types map to
 //! DrawingML presets (adjust values converted), shadows to hard outer shadows.
 
-use crate::model::{Cell, Document, Fill, Line, Para, Run, Shadow, Shape, Table, TextBody};
+use crate::model::{Cell, Document, Fill, Line, Para, Run, Shadow, Shape, Table, TextBody, BorderArt, Image};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::io::Write as _;
@@ -24,11 +24,26 @@ const NS_MC: &str = "http://schemas.openxmlformats.org/markup-compatibility/2006
 
 /// Writes `doc` as a Word document.
 pub fn export_docx(doc: &Document, path: &std::path::Path) -> Result<(), String> {
-    // a page's background colour becomes a page-sized rectangle behind everything else
+    // a page's background colour becomes a page-sized rectangle behind everything else; a picture
+    // border becomes a picture of the border over its shape (Word has picture borders for pages only)
     let with_backgrounds;
-    let doc = if doc.pages.iter().any(|p| p.background.is_some() || p.background_fill.is_some()) {
+    let has_border = |s: &Shape| s.border_art.is_some();
+    let doc = if doc.pages.iter().any(|p| p.background.is_some() || p.background_fill.is_some() || p.shapes.iter().any(has_border)) {
         let mut d = doc.clone();
         let (w, h) = (d.width, d.height);
+        for pi in 0..d.pages.len() {
+            let mut i = 0;
+            while i < d.pages[pi].shapes.len() {
+                let s = &d.pages[pi].shapes[i];
+                if let Some(png) = s.border_art.as_ref().and_then(|b| border_picture(&d.images, b, s.w, s.h)) {
+                    let pic = Shape { kind: "picture".into(), shape_type: 75, x: s.x, y: s.y, w: s.w, h: s.h, rotation: s.rotation, image: Some(d.images.len()), wrap: Some("none".into()), ..Default::default() };
+                    d.images.push(Image { mime: "image/png".into(), bytes: png, orientation: 1 });
+                    d.pages[pi].shapes.insert(i + 1, pic);
+                    i += 1;
+                }
+                i += 1;
+            }
+        }
         for p in &mut d.pages {
             let fill = p.background_fill.take().or(p.background.take().map(|color| Fill { color, opacity: 1.0, ..Default::default() }));
             if let Some(fill) = fill {
@@ -281,6 +296,48 @@ fn image_ext(mime: &str, bytes: &[u8]) -> &'static str {
         "image/x-wmf" | "image/wmf" => "wmf",
         _ => "bin",
     }
+}
+
+/// A picture border drawn as one picture of the shape's size (transparent inside), laid out as
+/// OpenPub draws it (render.js renderBorderArt): corner tiles, and a whole number of tiles along
+/// each edge, squeezed or stretched to fit.
+fn border_picture(images: &[Image], b: &BorderArt, w: f64, h: f64) -> Option<Vec<u8>> {
+    if b.tiles.len() != 8 || !(w > 2.0 && h > 2.0) {
+        return None;
+    }
+    let size = b.size.min(w / 2.0).min(h / 2.0);
+    if size < 1.0 {
+        return None;
+    }
+    // 2 pixels a point (144 dots per inch), at most 4000 pixels a side
+    let k = (2.0f64).min(4000.0 / w.max(h));
+    let (pw, ph) = ((w * k).round().max(1.0) as u32, (h * k).round().max(1.0) as u32);
+    let tiles: Vec<image::RgbaImage> = b.tiles.iter().map(|&i| images.get(i).and_then(|im| image::load_from_memory(&im.bytes).ok()).map(|im| im.into_rgba8())).collect::<Option<_>>()?;
+    let mut out = image::RgbaImage::new(pw, ph);
+    let mut put = |t: usize, x: f64, y: f64, tw: f64, th: f64| {
+        let (tw, th) = (((tw * k).round() as u32).max(1), ((th * k).round() as u32).max(1));
+        let scaled = image::imageops::resize(&tiles[t], tw, th, image::imageops::FilterType::Triangle);
+        image::imageops::overlay(&mut out, &scaled, (x * k).round() as i64, (y * k).round() as i64);
+    };
+    let nx = ((w / size).round() as usize).clamp(2, 400);
+    let ny = ((h / size).round() as usize).clamp(2, 400);
+    let ex = (w - 2.0 * size) / (nx - 2).max(1) as f64;
+    let ey = (h - 2.0 * size) / (ny - 2).max(1) as f64;
+    for i in 0..nx.saturating_sub(2) {
+        put(1, size + i as f64 * ex, 0.0, ex, size);
+        put(5, size + i as f64 * ex, h - size, ex, size);
+    }
+    for j in 0..ny.saturating_sub(2) {
+        put(7, 0.0, size + j as f64 * ey, size, ey);
+        put(3, w - size, size + j as f64 * ey, size, ey);
+    }
+    put(0, 0.0, 0.0, size, size);
+    put(2, w - size, 0.0, size, size);
+    put(4, w - size, h - size, size, size);
+    put(6, 0.0, h - size, size, size);
+    let mut png = Vec::new();
+    image::DynamicImage::ImageRgba8(out).write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
+    Some(png)
 }
 
 /// A copy of a JPEG whose EXIF orientation tag says "as stored" (1), so no viewer turns it.
@@ -1699,6 +1756,9 @@ fn rpr(r: &Run, hide: bool) -> String {
     let extra = r.kerning + if r.tracking > 0.0 { (r.tracking - 1.0) * 0.5 * r.size } else { 0.0 };
     if extra.abs() >= 0.05 {
         let _ = write!(o, "<w:spacing w:val=\"{}\"/>", ((extra * 20.0).round() as i64).clamp(-31680, 31680));
+    }
+    if r.scale > 0.0 && (r.scale - 1.0).abs() > 0.005 {
+        let _ = write!(o, "<w:w w:val=\"{}\"/>", ((r.scale * 100.0).round() as i64).clamp(1, 600));
     }
     match r.script {
         1 => o.push_str("<w:vertAlign w:val=\"superscript\"/>"),

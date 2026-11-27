@@ -1215,12 +1215,13 @@
     if (r.effect) o.effect = r.effect;
     if (r.caps) o.caps = r.caps;
     if (r.tracking) o.tracking = r.tracking;
+    if (r.scale) o.scale = r.scale;
     if (r.kerning) o.kerning = r.kerning;
     if (r.field) o.field = r.field;
     if (r.object) o.object = r.object;
     return o;
   }
-  const sameStyle = (a, b) => a.font === b.font && a.size === b.size && !!a.bold === !!b.bold && !!a.italic === !!b.italic && !!a.underline === !!b.underline && a.color === b.color && (a.script || 0) === (b.script || 0) && !!a.strike === !!b.strike && (a.effect || 0) === (b.effect || 0) && (a.caps || 0) === (b.caps || 0) && (a.tracking || 0) === (b.tracking || 0) && (a.kerning || 0) === (b.kerning || 0);
+  const sameStyle = (a, b) => a.font === b.font && a.size === b.size && !!a.bold === !!b.bold && !!a.italic === !!b.italic && !!a.underline === !!b.underline && a.color === b.color && (a.script || 0) === (b.script || 0) && !!a.strike === !!b.strike && (a.effect || 0) === (b.effect || 0) && (a.caps || 0) === (b.caps || 0) && (a.tracking || 0) === (b.tracking || 0) && (a.kerning || 0) === (b.kerning || 0) && (a.scale || 0) === (b.scale || 0);
 
   /** Reads the runs of one paragraph element (or a fragment of one). */
   function readRuns(node, fallback) {
@@ -1980,9 +1981,14 @@
     });
     input.addEventListener('blur', () => {
       closePick();
-      // a name or size typed and left: use it
+      // a name or size typed and left: use it (unless it is already what the text has: the
+      // window may report focus late, after the choice was applied)
       const v = String(input.value).trim();
-      if (v && v !== pick.start && v !== pick.applied) applyPick(input, v);
+      if (!v || v === pick.start || v === pick.applied) return;
+      const st = currentStyle();
+      const now = input.id === 'size' ? st && String(st.size) : input.id === 'wafont' ? sel && sel.shape && sel.shape.wordart && sel.shape.wordart.font : st && st.font;
+      if (now != null && String(now).toLowerCase() === v.toLowerCase()) return;
+      applyPick(input, v);
     });
   }
   window.addEventListener('resize', closePick);
@@ -2088,8 +2094,12 @@
       m.textContent = '!';
       m.title = "Some of the text doesn't fit in this box. Click to choose how to fix it.";
       m.setAttribute('aria-label', "Text doesn't fit");
-      m.style.left = (sh.x + sh.w) * k() + 'px';
-      m.style.top = (sh.y + sh.h) * k() + 'px';
+      // at the bottom right corner of the box (turned with it)
+      const a = (sh.rotation || 0) * Math.PI / 180;
+      const cx = sh.x + sh.w / 2 + (sh.w / 2) * Math.cos(a) - (sh.h / 2) * Math.sin(a);
+      const cy = sh.y + sh.h / 2 + (sh.w / 2) * Math.sin(a) + (sh.h / 2) * Math.cos(a);
+      m.style.left = cx * k() + 'px';
+      m.style.top = cy * k() + 'px';
       m.addEventListener('pointerdown', (e) => e.stopPropagation());
       m.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -2107,19 +2117,23 @@
   function fitTargets() {
     if (!sel) return [];
     const chains = OpenPub.storyChains(doc);
-    return sel.shapes.filter((s) => s.text && s.kind !== 'table' && !s.wordart && !(s.rotation % 360) && !chains.has(s.text.story));
+    return sel.shapes.filter((s) => s.text && s.kind !== 'table' && !s.wordart && !chains.has(s.text.story));
   }
   /** Where the text of a box ends, in points below the top of the box (null if it has none). */
   function textBottom(page, sh) {
     const el = shapeEl(page, sh);
     const flow = el && el.querySelector('.op-flow');
     if (!flow) return null;
+    // (measured unturned)
+    const turn = el.style.transform;
+    if (turn) el.style.transform = 'none';
     const top = el.getBoundingClientRect().top;
     let bottom = null;
     for (const span of flow.querySelectorAll('span')) {
       if (span.classList.contains('op-wrap') || !/\S/.test(span.textContent.replace(/[\u00AD\u2060]/g, ''))) continue;
       for (const r of span.getClientRects()) if (r.height) bottom = Math.max(bottom == null ? -Infinity : bottom, r.bottom);
     }
+    if (turn) el.style.transform = turn;
     return bottom == null ? null : (bottom - top) / k();
   }
   /** Makes each selected box as tall as its text. */
@@ -4624,6 +4638,7 @@
     zoomMode = '1';
     build();
     for (const s of sheets) if (s) renderSheet(s);
+    addPrintLinks(pagesEl);
     printRestore = () => {
       printRestore = null;
       busy = false;
@@ -4638,6 +4653,19 @@
     };
     const imgs = [...pagesEl.querySelectorAll('img')];
     return Promise.all(imgs.map((im) => (im.decode ? im.decode().catch(() => {}) : Promise.resolve())));
+  }
+  /** Links on objects become real links while printing, so a PDF keeps them clickable. */
+  function addPrintLinks(root) {
+    for (const el of root.querySelectorAll('.op-shape')) {
+      const url = el.opShape && el.opShape.link;
+      if (!url || !/^(https?:\/\/|mailto:)\S+$/i.test(url)) continue;
+      const a = document.createElement('a');
+      a.href = url;
+      a.className = 'op-printlink';
+      a.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;z-index:5';
+      a.addEventListener('click', (e) => e.preventDefault());
+      el.appendChild(a);
+    }
   }
   function printAll() {
     if (!doc || busy) return;
@@ -4713,6 +4741,7 @@
       box.appendChild(side);
     }
     for (const w of finish) w.opFinish();
+    addPrintLinks(box);
     document.body.classList.add('bookprint');
     printRestore = () => {
       printRestore = null;

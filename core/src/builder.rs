@@ -295,6 +295,11 @@ impl TextCtx<'_> {
                         _ => 0.0,
                     },
                     kerning: rp.kerning.map(|k| k as f64 / EMU_PER_PT).filter(|k| k.abs() < 200.0).unwrap_or(0.0),
+                    // (measured: tools/makeprobe9.ps1)
+                    scale: match rp.scale {
+                        Some(t) if t != 1000 && (10..=6000).contains(&t) => t as f64 / 1000.0,
+                        _ => 0.0,
+                    },
                     field: if rp.field == Some(5) { Some("page".into()) } else { None },
                     object: None,
                     inline,
@@ -302,7 +307,7 @@ impl TextCtx<'_> {
                 // the paragraph mark keeps its formatting as an empty run, so that empty
                 // paragraphs get the right height
                 let same_format = |a: &Run, b: &Run| {
-                    a.inline.is_none() && b.inline.is_none() && a.font == b.font && a.size == b.size && a.bold == b.bold && a.italic == b.italic && a.underline == b.underline && a.color == b.color && a.script == b.script && a.strike == b.strike && a.effect == b.effect && a.caps == b.caps && a.tracking == b.tracking && a.kerning == b.kerning && a.field == b.field
+                    a.inline.is_none() && b.inline.is_none() && a.font == b.font && a.size == b.size && a.bold == b.bold && a.italic == b.italic && a.underline == b.underline && a.color == b.color && a.script == b.script && a.strike == b.strike && a.effect == b.effect && a.caps == b.caps && a.tracking == b.tracking && a.kerning == b.kerning && a.scale == b.scale && a.field == b.field
                 };
                 match para.runs.last_mut() {
                     Some(last) if !run.text.is_empty() && same_format(last, &run) => last.text.push_str(&run.text),

@@ -74,7 +74,10 @@ kbd { font: inherit; color: var(--muted); }
 #bar .tabs [role=tab][hidden] { display: none; }
 /* ---- stage 5 controls -------------------------------------------------------------------------- */
 #wafont { width: 150px; }
-#font { width: 150px; } #size { width: 56px; }
+#font { width: 150px; } #size { width: 62px; }
+/* the font and size boxes open lists: an arrow says so, like the other drop-down lists */
+#bar input.picker { padding-right: 22px; background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23444' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 8px center / 10px 6px; cursor: pointer; }
+#bar input.picker:focus { cursor: text; }
 /* the font and size lists */
 .pickpop { position: fixed; z-index: 60; max-height: min(420px, 60vh); overflow-y: auto; background: #fff; border: 1px solid var(--bar-line); border-radius: 7px; box-shadow: 0 6px 20px rgba(0,0,0,.22); padding: 4px; font-size: 13px; }
 .pickpop[hidden] { display: none; }

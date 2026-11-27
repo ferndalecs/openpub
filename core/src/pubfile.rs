@@ -554,6 +554,8 @@ struct RunProps {
     tracking: Option<u32>,
     /// extra character spacing in EMU
     kerning: Option<i32>,
+    /// character width in thousandths (500 = 50%)
+    scale: Option<u32>,
     /// field type of the character (5 = page number)
     field: Option<u32>,
 }
@@ -605,6 +607,7 @@ fn run_props(bs: &[Block]) -> RunProps {
             (0x14, BVal::Int(v)) => r.all_caps = Some(*v != 0),
             (0x1f, BVal::Int(v)) => r.tracking = Some(*v),
             (0x1b, BVal::Int(v)) => r.kerning = Some(*v as i32),
+            (0x20, BVal::Int(v)) => r.scale = Some(*v),
             (0x00, BVal::Int(v)) => r.field = Some(*v),
             (0x24, BVal::List(l)) => {
                 // one font per script; entry 0 is the Latin font
@@ -694,6 +697,7 @@ impl RunProps {
             all_caps: self.all_caps.or(base.all_caps),
             tracking: self.tracking.or(base.tracking),
             kerning: self.kerning.or(base.kerning),
+            scale: self.scale.or(base.scale),
             field: self.field,
         }
     }

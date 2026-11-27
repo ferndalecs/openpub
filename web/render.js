@@ -168,6 +168,24 @@
     if (run.script === 2) { s.verticalAlign = 'sub'; s.fontSize = pt(run.size * 0.65); span.opLine = null; }
   }
 
+  /** Text with its characters made wider or narrower (Publisher's character scaling): CSS can't
+   * do that in a line of text, so each word is a box drawn stretched, taking the space it takes
+   * stretched; the spaces between words stretch too. (Such words aren't hyphenated.) */
+  function scaledText(span, text, run) {
+    const k = Math.max(0.05, Math.min(6, run.scale));
+    const ls = parseFloat(span.style.letterSpacing) || 0;
+    span.style.wordSpacing = pt((k - 1) * textWidth(run, ' '));
+    for (const tok of text.split(/(\s+)/)) {
+      if (!tok) continue;
+      if (/^\s+$/.test(tok)) { span.appendChild(document.createTextNode(tok)); continue; }
+      const w = el('span', 'op-sc');
+      w.textContent = tok;
+      const natural = textWidth(run, tok) + ls * [...tok].length;
+      w.style.cssText = `display:inline-block;transform:scaleX(${k});transform-origin:0 0;margin-right:${pt((k - 1) * natural)}`;
+      span.appendChild(w);
+    }
+  }
+
   /** Width of text in a run's font, in points. */
   let widthCanvas = null;
   function textWidth(run, text) {
@@ -195,7 +213,7 @@
 
   // Editing support: formatting is kept on the elements so edited text can be read back.
   function runKey(run) {
-    return JSON.stringify({ font: run.font, size: run.size, bold: !!run.bold, italic: !!run.italic, underline: !!run.underline, color: run.color, script: run.script || 0, strike: !!run.strike, effect: run.effect || 0, caps: run.caps || 0, tracking: run.tracking || 0, kerning: run.kerning || 0 });
+    return JSON.stringify({ font: run.font, size: run.size, bold: !!run.bold, italic: !!run.italic, underline: !!run.underline, color: run.color, script: run.script || 0, strike: !!run.strike, effect: run.effect || 0, caps: run.caps || 0, tracking: run.tracking || 0, kerning: run.kerning || 0, scale: run.scale || 0 });
   }
   function paraKey(p) {
     const o = Object.assign({}, p);
@@ -272,6 +290,8 @@
         if (part === '\t') {
           span.textContent = '';
           ctx.tabs.push({ span, para: p, block: d });
+        } else if (run.scale > 0 && Math.abs(run.scale - 1) > 0.005 && !run.field) {
+          scaledText(span, symbolText(part, run.font), run);
         } else {
           span.textContent = run.field === 'page' ? String(ctx.pageNumber) : (ctx.noHyphen ? symbolText(part, run.font) : hyphenate(symbolText(part, run.font), run.font));
         }
@@ -1752,6 +1772,10 @@
     for (const box of pg.querySelectorAll('.op-text')) {
       const flow = box.firstElementChild;
       if (!flow) continue;
+      // (a turned or flipped box is measured unturned)
+      const shapeEl = box.closest('.op-shape');
+      const turn = shapeEl && shapeEl.style.transform;
+      if (turn) shapeEl.style.transform = 'none';
       // the first line always shows; later ones need (most of) their text height inside the frame
       const limit = box.getBoundingClientRect().bottom;
       for (const para of flow.children) {
@@ -1761,16 +1785,17 @@
         if (r && r.top + r.height * 0.75 > limit) para.style.visibility = 'hidden';
       }
       box.opOverflow = textCutOff(box, flow, limit);
+      if (turn) shapeEl.style.transform = turn;
     }
   }
 
   /** Whether words in a text box are hidden because they don't fit: a paragraph left out, or
-   * its last line cut off at the bottom. (Not worked out for turned or flipped boxes, table
-   * cells, or a linked box whose text carries on in the next one.) */
+   * its last line cut off at the bottom. (Not worked out for table cells, or a linked box whose
+   * text carries on in the next one.) */
   function textCutOff(box, flow, limit) {
     const el = box.closest('.op-shape');
     const sh = el && el.opShape;
-    if (!sh || sh.rotation % 360 || sh.flip_h || sh.flip_v || box.closest('td')) return false;
+    if (!sh || box.closest('td')) return false;
     if (flow.opOwner && flow.opOwner._range && flow.opOwner._range[1]) return false;
     const words = (n) => /\S/.test(n.textContent.replace(/[\u00AD\u2060]/g, ''));
     for (const para of flow.children) {
