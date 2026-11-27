@@ -256,6 +256,18 @@
         o.contentEditable = 'false';
         o.style.width = pt(run.object.w);
         o.style.height = pt(run.object.h);
+        // a table in the text: Publisher leaves about 3.3pt above it and the font's descent below
+        // (Cymru p35, Year 7 booklet p11 and p18)
+        if (run.object.kind === 'table' && run.object.table) {
+          const f = FONTS[run.font];
+          // (moved down rather than given a top margin: a taller line box can be placed
+          // differently beside shapes the text flows round - Year 7 booklet p18)
+          o.style.top = pt(3.3);
+          o.opShift = 3.3;
+          o.style.marginBottom = pt(3.3 + (f ? f.descent : 0.25) * (run.size || 10));
+          // pushed below a shape, the line moves down in steps of its font's line height (snapWraps)
+          if (!p.spacing_exact) o.opStep = (run.size || 10) * lineEm(run.font, run.bold, run.italic) * Math.max(1, p.spacing || 1);
+        }
         if (lone && run.object.w > 2) {
           const give = run.object.w - 1;
           if (p.align === 'center') { o.style.marginLeft = pt(-give / 2); o.style.marginRight = pt(-give / 2); }
@@ -1005,7 +1017,7 @@
       const lines = [];
       for (const span of para.querySelectorAll('span')) {
         const l = span.opLine;
-        if (!l) continue;
+        if (!l || span.parentElement.closest('.op-obj')) continue; // (not the text in a table)
         for (const r of span.getClientRects()) {
           if (!r.height) continue;
           const base = (r.top - ft) / k + l.base + down(r);
@@ -1017,6 +1029,14 @@
       }
       lines.sort((a, b) => a.base - b.base);
       const after = parseFloat(para.style.marginBottom) || 0; // (set in pt by renderPara)
+      // a table on a line of its own: the line is the table, and moves in steps of the font's
+      // line height (Year 7 booklet p18)
+      const obj = !lines.length && para.querySelector('.op-obj');
+      if (obj && obj.opStep) {
+        const r = obj.getBoundingClientRect();
+        out.push({ top: (r.top - ft) / k - (obj.opShift || 0) + down(r), h: r.height / k, paraTop: cols ? NaN : (para.getBoundingClientRect().top - ft) / k, advance: obj.opStep });
+        continue;
+      }
       lines.forEach((l, i) => out.push({
         top: l.base - l.above,
         h: l.above + l.below,
@@ -1695,6 +1715,7 @@
     return svg;
   }
 
+
   function renderTable(shape, ctx) {
     const t = shape.table;
     const wrap = el('div', 'op-shape op-tablewrap');
@@ -1724,7 +1745,6 @@
     const taken = new Set();
     const cells = t.cells.slice().sort((a, b) => a.r0 - b.r0 || a.c0 - b.c0);
     const drawn = [];
-    const slacks = [];
     for (const c of cells) {
       if (c.r0 >= rows.length || c.c0 >= t.cols.length || taken.has(c.r0 + ',' + c.c0)) continue;
       const r1 = Math.min(c.r1, rows.length - 1), c1 = Math.min(c.c1, t.cols.length - 1);
@@ -1748,7 +1768,13 @@
       // the extra line spacing under the last line (see the row heights below)
       const lp = c.paras[c.paras.length - 1];
       const lr = lp && lp.runs.find((r) => !r.object && r.size);
-      if (c.valign === 'top' && c.r1 <= c.r0 && lr && !lp.spacing_exact && lp.spacing > 1) slacks.push({ inner, r: c.r0, slack: (lp.spacing - 1) * lineEm(lr.font, lr.bold, lr.italic) * lr.size });
+      // Publisher's cell: the last line adds none of its extra line spacing to the row, and the
+      // text starts a little lower (about a fifth of the font's line gap) - measured on Cymru p35,
+      // Year 7 booklet p11 and p21
+      if (lr && !lp.spacing_exact && lp.spacing > 1) inner.style.marginBottom = pt(-(lp.spacing - 1) * lineEm(lr.font, lr.bold, lr.italic) * lr.size);
+      const fp = c.paras[0];
+      const fr0 = fp && fp.runs.find((r) => !r.object && r.size);
+      if (fr0 && FONTS[fr0.font]) inner.style.paddingTop = pt(0.22 * FONTS[fr0.font].gap * fr0.size);
       td.appendChild(inner);
       rows[c.r0].appendChild(td);
       if (c.borders.some((b) => b)) drawn.push({ td, borders: c.borders });
@@ -1764,15 +1790,6 @@
     ctx.after.push(() => {
       const svg = svgEl('svg', { class: 'op-svg' });
       const px = 96 / 72;
-      // A row the text makes taller than its saved height only by the extra line spacing under
-      // its last line keeps its height in Publisher (three empty 12pt lines in a 50pt row: Year 7
-      // booklet p11); a row that grows more grows by the whole line (p21).
-      for (let r = 0; r < rows.length; r++) {
-        const own = slacks.filter((s) => s.r === r);
-        if (!own.length) continue;
-        const over = rows[r].offsetHeight / px - t.rows[r];
-        if (over > 0.3 && over <= Math.max(...own.map((s) => s.slack)) + 0.3) for (const s of own) s.inner.style.marginBottom = pt(-s.slack);
-      }
       const seen = new Set();
       for (const { td, borders } of drawn) {
         const x0 = td.offsetLeft, y0 = td.offsetTop, x1 = x0 + td.offsetWidth, y1 = y0 + td.offsetHeight;
@@ -1808,7 +1825,7 @@
         if (!para.classList.contains('op-para') || para === flow.querySelector('.op-para')) continue;
         const first = para.querySelector('span');
         const r = first && first.getClientRects()[0];
-        if (r && r.top + r.height * 0.75 > limit) para.style.visibility = 'hidden';
+        if (r && r.top + r.height * 0.95 > limit) para.style.visibility = 'hidden';
       }
       box.opOverflow = textCutOff(box, flow, limit);
       if (turn) shapeEl.style.transform = turn;
@@ -1831,7 +1848,7 @@
       const last = spans[spans.length - 1];
       const rs = last ? last.getClientRects() : [];
       const r = rs[rs.length - 1];
-      if (r && r.top + r.height * 0.75 > limit) return true;
+      if (r && r.top + r.height * 0.95 > limit) return true;
     }
     return false;
   }

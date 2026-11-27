@@ -169,7 +169,9 @@ const LONG = 'Our class trip to the science museum was the best day of the year.
     const sizes = o2.text.paras.flatMap((p) => p.runs.map((r) => r.size));
     check('Shrink text to fit makes it fit', !T.overflowing(page, o2), sizes);
     check('...in half-point steps, not below 6 pt', sizes.every((s) => s >= 6 && Math.abs(s * 2 - Math.round(s * 2)) < 1e-9), sizes);
-    check('the marker goes once the text fits', !sheetEl.querySelector('.ovf'));
+    // (only this box's marker: earlier steps leave other boxes stacked where text flows round them)
+    const marked = [...sheetEl.querySelectorAll('.op-text')].filter((b) => b.opOverflow).map((b) => b.closest('.op-shape').opShape);
+    check('the marker goes once the text fits', !marked.includes(o2) && sheetEl.querySelectorAll('.ovf').length === marked.length, marked.length);
   } catch (e) {
     check('no error', false, String(e) + ' ' + e.stack);
   }

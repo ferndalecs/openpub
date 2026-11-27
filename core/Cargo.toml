@@ -1,6 +1,6 @@
 [package]
 name = "openpub-core"
-version = "0.3.8"
+version = "0.3.9"
 edition = "2024"
 description = "Reads Microsoft Publisher .pub files into a renderable document model"
 license = "MIT"

@@ -209,7 +209,9 @@ feature samples to Word, opens each in Word and compares them with Publisher's p
   * Hyphenation uses English (UK) patterns for all text, so line breaks in other languages
     (e.g. Welsh) can differ from Publisher's; in English too, Publisher's own hyphenation
     sometimes breaks a word elsewhere.
-  * Text in a table cell can sit a point or two higher than in Publisher.
+  * A text line that has to move below a shape is moved down in steps of its line height, as
+    Publisher does; a table in the text can still land a point or two away from where
+    Publisher puts it.
   * When text doesn't fit a centred or bottom-aligned frame, Publisher drops the lines that
     don't fit before aligning; OpenPub aligns all of them.
 * Editing: undo while typing is per editing session. When a shape that text flows around is
