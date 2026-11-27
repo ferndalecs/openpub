@@ -22,16 +22,15 @@ pub fn write(doc: &Document, path: &Path) -> Result<(), String> {
             zip.start_file(format!("images/{i}.{}", image_ext(&img.mime)), stored).map_err(|e| e.to_string())?;
             zip.write_all(&img.bytes).map_err(|e| e.to_string())?;
         }
-        zip.finish().map_err(|e| e.to_string())?;
+        // on the disk before it takes the place of the old file (a power cut mustn't leave an empty one)
+        zip.finish().map_err(|e| e.to_string())?.sync_all().map_err(|e| e.to_string())?;
         Ok(())
     })();
-    match result {
-        Ok(()) => std::fs::rename(&tmp, path).map_err(|e| e.to_string()),
-        Err(e) => {
-            let _ = std::fs::remove_file(&tmp);
-            Err(e)
-        }
+    let result = result.and_then(|()| std::fs::rename(&tmp, path).map_err(|e| e.to_string()));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
+    result
 }
 
 /// Limits on what a .opub file may unpack to (a small file can be made to expand enormously).
@@ -75,6 +74,9 @@ pub fn read(path: &Path) -> Result<Document, String> {
     drop(json);
     clean_colours(&mut value);
     let mut doc: Document = serde_json::from_value(value).map_err(|e| format!("The document is damaged: {e}"))?;
+    if doc.pages.is_empty() {
+        return Err("The document is damaged: it has no pages.".into());
+    }
     if doc.images.len() > MAX_IMAGES {
         return Err("The document is damaged: it lists too many pictures.".into());
     }

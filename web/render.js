@@ -702,7 +702,7 @@
           tail.opLine = span.opLine;
           tail.opTail = true;
           tail.opBelow = span.opBelow;
-          if (span.opOff != null) tail.opOff = span.opOff + [...tn.data].filter((ch) => ch !== '­').length;
+          if (span.opOff != null) tail.opOff = span.opOff + tn.data.replace(/\u00AD/g, '').length;
           span.after(tail);
           const br = el('br', 'op-wrap op-gap');
           tail.before(br);
@@ -732,7 +732,7 @@
       tail.opLine = span.opLine;
       tail.opTail = true;
       tail.opBelow = span.opBelow;
-      if (span.opOff != null) tail.opOff = span.opOff + [...tn.data].filter((ch) => ch !== '\u00AD').length;
+      if (span.opOff != null) tail.opOff = span.opOff + tn.data.replace(/\u00AD/g, '').length;
       span.after(tail);
       moved = tail;
     }
@@ -764,7 +764,7 @@
     tail.opLine = span.opLine;
     tail.opTail = true;
     tail.opBelow = span.opBelow;
-    if (span.opOff != null) tail.opOff = span.opOff + [...tn.data].filter((ch) => ch !== '\u00AD').length;
+    if (span.opOff != null) tail.opOff = span.opOff + tn.data.replace(/\u00AD/g, '').length;
     span.after(tail);
     return tail;
   }
@@ -1891,6 +1891,7 @@
             enumerable: true,
           });
           view._orig = JSON.stringify(cur);
+          view._range = [a, b];
           view._commit = (v) => {
             first.paras = spliceStory(first.paras, a, b, JSON.parse(JSON.stringify(v)));
             view._orig = JSON.stringify(v);
@@ -2043,5 +2044,5 @@
     return wrap;
   }
 
-  window.OpenPub = { renderPage, naturalLineHeight };
+  window.OpenPub = { renderPage, naturalLineHeight, storyChains, sliceStory };
 })();

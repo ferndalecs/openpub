@@ -155,7 +155,8 @@ The editor has automated checks that run inside a debug build:
 Replace and the text buttons, `tools/pagetest.js` for the shapes gallery, align/flip and page
 setup, `tools/extratest.js` for WordArt, effects, links, table styles, picture adjustments,
 the page picture and the designs, `tools/wraptest.js` for editing text that flows round a
-shape); results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the
+shape, `tools/safetytest.js` for not losing unsaved work, `tools/linktest.js` for linked text boxes
+and text positions); results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the
 feature samples to Word, opens each in Word and compares them with Publisher's pages;
 `tools/docx-open.ps1` checks that Word accepts an exported document and lists its links.
 
@@ -180,7 +181,10 @@ feature samples to Word, opens each in Word and compares them with Publisher's p
     don't fit before aligning; OpenPub aligns all of them.
 * Editing: undo while typing is per editing session. When a shape that text flows around is
   moved in a document saved by Publisher, the text follows Publisher's saved list of what it
-  flows around (shapes added in OpenPub always count).
+  flows around (shapes added in OpenPub always count). Editing a text box removes any optional
+  hyphens the author put in it (OpenPub hyphenates by itself). Copying a linked text box gives a
+  box of its own holding the text the original shows; deleting the page with the first box of a
+  linked story empties the rest of the story (Undo brings it back).
 * Word export: Word lays text out itself, so line breaks can differ from Publisher's; wrapping
   around shapes is approximated per paragraph, on one side of a shape. BorderArt and a picture
   shown inside a shape aren't carried into the Word file; links aren't clickable in the PDF.

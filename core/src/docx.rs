@@ -160,7 +160,10 @@ pub fn export_docx(doc: &Document, path: &std::path::Path) -> Result<(), String>
         tw(default_tab).max(1)
     );
 
-    let file = std::fs::File::create(path).map_err(|e| format!("Couldn't create {}: {e}", path.display()))?;
+    // written next to the target first, so a failure can't destroy a document already there
+    let tmp = path.with_extension("docx.tmp");
+    let written = (|| -> Result<(), String> {
+    let file = std::fs::File::create(&tmp).map_err(|e| format!("Couldn't create {}: {e}", path.display()))?;
     let mut zw = zip::ZipWriter::new(std::io::BufWriter::new(file));
     let deflate = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
     let stored = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
@@ -193,9 +196,15 @@ pub fn export_docx(doc: &Document, path: &std::path::Path) -> Result<(), String>
             zw.write_all(&img.bytes).map_err(ioerr)?;
         }
     }
-    let mut inner = zw.finish().map_err(err)?;
-    inner.flush().map_err(ioerr)?;
+    let inner = zw.finish().map_err(err)?;
+    inner.into_inner().map_err(|e| ioerr(e.into_error()))?.sync_all().map_err(ioerr)?;
     Ok(())
+    })();
+    let result = written.and_then(|()| std::fs::rename(&tmp, path).map_err(|e| format!("Couldn't write {}: {e}", path.display())));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
 }
 
 // ---- helpers ---------------------------------------------------------------------------------

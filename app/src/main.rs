@@ -12,6 +12,7 @@ mod recent;
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use openpub_core::model::{Document, Image};
@@ -20,7 +21,7 @@ use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
 use tao::window::{Icon, WindowBuilder};
 use wry::http::{Request, Response, header::CACHE_CONTROL, header::CONTENT_TYPE};
-use wry::{DragDropEvent, WebViewBuilder};
+use wry::{DragDropEvent, WebViewBuilder, WebViewBuilderExtWindows};
 
 const APP_HTML: &str = include_str!("../../web/app.html");
 const APP_CSS: &str = include_str!("../../web/app.css");
@@ -38,6 +39,8 @@ struct State {
     dirty: bool,
     /// A test script is driving the program (no questions, nothing remembered).
     testing: bool,
+    /// While testing: the answer to "lose the unsaved changes?" (instead of asking).
+    test_answer: bool,
 }
 
 /// What to do once a save has finished.
@@ -50,9 +53,10 @@ enum Then {
 enum UserEvent {
     /// Ask for a file and open it.
     Choose,
-    Open(PathBuf),
-    /// Start a blank publication with this page size (points).
-    New { width: f64, height: f64 },
+    /// Open a file; `asked`: the person has already agreed to lose unsaved changes.
+    Open { path: PathBuf, asked: bool },
+    /// Start a blank publication with this page size (points), perhaps from one of the designs.
+    New { width: f64, height: f64, template: Option<String> },
     Loaded { path: PathBuf, result: Result<(String, Vec<Image>), String> },
     Save { doc: String, ask: bool, then: Then, forced: Option<PathBuf> },
     ExportDocx { doc: String, forced: Option<PathBuf> },
@@ -60,6 +64,8 @@ enum UserEvent {
     Quit,
     PdfDone(Result<PathBuf, String>),
     AddPicture,
+    /// A picture the person chose has been read (or couldn't be).
+    PictureReady(Result<(Image, u32, u32), String>),
     Associate,
     /// Open a web or e-mail address in the person's browser, after asking.
     OpenLink(String),
@@ -107,6 +113,10 @@ fn serve(state: &Mutex<State>, request: Request<Vec<u8>>) -> Response<Cow<'stati
             respond("application/json; charset=utf-8", format!("{{\"askAssoc\":{ask}}}").into_bytes().into(), false)
         }
         "recent.json" => respond("application/json; charset=utf-8", recent::json().into_bytes().into(), false),
+        "state.json" if cfg!(debug_assertions) => {
+            let st = state.lock().unwrap();
+            respond("application/json; charset=utf-8", format!("{{\"dirty\":{}}}", st.dirty).into_bytes().into(), false)
+        }
         "doc.json" => {
             let st = state.lock().unwrap();
             let body = st.json.clone().unwrap_or_else(|| "{}".into());
@@ -144,7 +154,7 @@ fn load(path: &Path) -> Result<(String, Vec<Image>), String> {
 }
 
 /// A blank one-page publication, as JSON for the page.
-fn blank(width: f64, height: f64, name: &str) -> String {
+fn blank(width: f64, height: f64, name: &str, template: Option<&str>) -> String {
     let mut doc = Document { width, height, default_tab: 36.0, ..Default::default() };
     doc.pages.push(openpub_core::model::Page { name: String::new(), number: 1, shapes: Vec::new(), ..Default::default() });
     // line spacing needs the metrics of the fonts people are likely to pick
@@ -155,6 +165,9 @@ fn blank(width: f64, height: f64, name: &str) -> String {
     }
     let mut value = serde_json::to_value(&doc).unwrap_or_default();
     value["name"] = name.into();
+    if let Some(t) = template {
+        value["template"] = t.into();
+    }
     value.to_string()
 }
 
@@ -187,7 +200,16 @@ fn main() -> wry::Result<()> {
     }
     let state = Arc::new(Mutex::new(State::default()));
     let testing = test_script.is_some();
-    state.lock().unwrap().testing = testing;
+    {
+        let mut st = state.lock().unwrap();
+        st.testing = testing;
+        st.test_answer = true;
+    }
+    // Once the program's page has loaded, the window never navigates again: no reloading (F5, the
+    // context menu's Refresh), which would throw away unsaved changes.
+    let page_ready = Arc::new(AtomicBool::new(false));
+    let nav_ready = page_ready.clone();
+    let ipc_ready = page_ready.clone();
     let mut untitled = 0;
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
@@ -209,11 +231,13 @@ fn main() -> wry::Result<()> {
     let mut web_context = wry::WebContext::new(data_dir);
     let webview = WebViewBuilder::new_with_web_context(&mut web_context)
         // the window never leaves the program's own page, opens no other windows, downloads nothing
-        .with_navigation_handler(|url| own_page(&url))
+        .with_navigation_handler(move |url| own_page(&url) && !nav_ready.load(Ordering::SeqCst))
+        // browser keys (F5 reload, Ctrl+F browser find, Ctrl+P browser print...) are the program's own
+        .with_browser_accelerator_keys(false)
         .with_new_window_req_handler(|_url, _features| wry::NewWindowResponse::Deny)
         .with_download_started_handler(|_url, _path| false)
         .with_custom_protocol("openpub".into(), move |_id, request| serve(&serve_state, request))
-        .with_ipc_handler(move |req: Request<String>| on_message(req.body(), &ipc_state, &ipc_proxy))
+        .with_ipc_handler(move |req: Request<String>| on_message(req.body(), &ipc_state, &ipc_proxy, &ipc_ready))
         .with_drag_drop_handler(move |e| {
             match e {
                 DragDropEvent::Enter { .. } => {
@@ -225,7 +249,7 @@ fn main() -> wry::Result<()> {
                 DragDropEvent::Drop { paths, .. } => {
                     let _ = drop_proxy.send_event(UserEvent::Drag(false));
                     if let Some(p) = paths.into_iter().next() {
-                        let _ = drop_proxy.send_event(UserEvent::Open(p));
+                        let _ = drop_proxy.send_event(UserEvent::Open { path: p, asked: false });
                     }
                 }
                 _ => {}
@@ -234,10 +258,25 @@ fn main() -> wry::Result<()> {
         })
         .with_devtools(cfg!(debug_assertions))
         .with_url("openpub://localhost/index.html")
-        .build(&window)?;
+        .build(&window);
+    let webview = match webview {
+        Ok(w) => w,
+        Err(e) => {
+            // most likely the Microsoft Edge WebView2 Runtime is missing or damaged: say so, rather
+            // than closing without a word
+            rfd::MessageDialog::new()
+                .set_title("OpenPub")
+                .set_level(rfd::MessageLevel::Error)
+                .set_description(format!("OpenPub couldn't start its window. It needs the Microsoft Edge WebView2 Runtime, which may be missing or out of date on this computer - ask your IT support to install or repair it.
+
+({e})"))
+                .show();
+            return Err(e);
+        }
+    };
 
     if let Some(p) = initial {
-        let _ = proxy.send_event(UserEvent::Open(p));
+        let _ = proxy.send_event(UserEvent::Open { path: p, asked: false });
     }
 
     let note = |webview: &wry::WebView, msg: &str| {
@@ -247,8 +286,14 @@ fn main() -> wry::Result<()> {
         let _ = webview.evaluate_script(&format!("window.OpenPubApp && OpenPubApp.error({})", js_string(msg)));
     };
     let discard_ok = |state: &Mutex<State>, window: &tao::window::Window| -> bool {
-        if !state.lock().unwrap().dirty {
-            return true;
+        {
+            let st = state.lock().unwrap();
+            if !st.dirty {
+                return true;
+            }
+            if st.testing {
+                return st.test_answer;
+            }
         }
         rfd::MessageDialog::new()
             .set_parent(window)
@@ -294,12 +339,12 @@ fn main() -> wry::Result<()> {
                     .set_parent(&window)
                     .pick_file();
                 if let Some(p) = picked {
-                    state.lock().unwrap().dirty = false;
-                    let _ = proxy.send_event(UserEvent::Open(p));
+                    // (the unsaved changes are only gone once the new file has loaded)
+                    let _ = proxy.send_event(UserEvent::Open { path: p, asked: true });
                 }
             }
-            Event::UserEvent(UserEvent::Open(path)) => {
-                if !discard_ok(&state, &window) {
+            Event::UserEvent(UserEvent::Open { path, asked }) => {
+                if !asked && !discard_ok(&state, &window) {
                     return;
                 }
                 window.set_title(&format!("Opening {}… – OpenPub", file_name(&path)));
@@ -340,7 +385,7 @@ fn main() -> wry::Result<()> {
                     error(&webview, &format!("Couldn't open {}: {e}", path.display()));
                 }
             },
-            Event::UserEvent(UserEvent::New { width, height }) => {
+            Event::UserEvent(UserEvent::New { width, height, template }) => {
                 if !discard_ok(&state, &window) {
                     return;
                 }
@@ -348,7 +393,7 @@ fn main() -> wry::Result<()> {
                 let name = format!("Publication{untitled}");
                 {
                     let mut st = state.lock().unwrap();
-                    st.json = Some(blank(width.clamp(36.0, 14400.0), height.clamp(36.0, 14400.0), &name));
+                    st.json = Some(blank(width.clamp(36.0, 14400.0), height.clamp(36.0, 14400.0), &name, template.as_deref()));
                     st.images = Vec::new();
                     st.path = None;
                     st.dirty = false;
@@ -371,7 +416,7 @@ fn main() -> wry::Result<()> {
                         } else {
                             dlg = dlg.set_file_name("Publication.opub");
                         }
-                        dlg.save_file().map(|p| if is_opub(&p) { p } else { p.with_extension("opub") })
+                        dlg.save_file().map(|p| if is_opub(&p) { p } else { with_ext(p, "opub") })
                     }
                 };
                 let Some(target) = target else { return };
@@ -434,7 +479,13 @@ fn main() -> wry::Result<()> {
             Event::UserEvent(UserEvent::AddPicture) => {
                 let picked = rfd::FileDialog::new().set_title("Add a picture").add_filter("Pictures", &["png", "jpg", "jpeg", "gif", "bmp", "tif", "tiff"]).set_parent(&window).pick_file();
                 let Some(p) = picked else { return };
-                match std::fs::read(&p).map_err(|e| e.to_string()).and_then(openpub_core::images::prepare) {
+                let proxy = proxy.clone();
+                std::thread::spawn(move || {
+                    let _ = proxy.send_event(UserEvent::PictureReady(read_picture(&p)));
+                });
+            }
+            Event::UserEvent(UserEvent::PictureReady(result)) => {
+                match result {
                     Ok((img, w, h)) => {
                         let index = {
                             let mut st = state.lock().unwrap();
@@ -516,11 +567,35 @@ fn export_target(state: &Mutex<State>, window: &tao::window::Window, title: &str
         }
         dlg = dlg.set_file_name(format!("{}.{ext}", p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Publication".into())));
     }
-    dlg.save_file().map(|p| if p.extension().is_some() { p } else { p.with_extension(ext) })
+    dlg.save_file().map(|p| if p.extension().map(|e| e.eq_ignore_ascii_case(ext)).unwrap_or(false) { p } else { with_ext(p, ext) })
+}
+
+/// Reads a picture file the person chose: not too large, and a damaged one can't take the
+/// program down.
+fn read_picture(p: &Path) -> Result<(Image, u32, u32), String> {
+    const MAX_FILE: u64 = 50 * 1024 * 1024;
+    let size = std::fs::metadata(p).map_err(|e| format!("Couldn't read {}: {e}", file_name(p)))?.len();
+    if size > MAX_FILE {
+        return Err(format!("{} is too large to add (the limit is 50 MB).", file_name(p)));
+    }
+    let bytes = std::fs::read(p).map_err(|e| format!("Couldn't read {}: {e}", file_name(p)))?;
+    let (img, w, h) = std::panic::catch_unwind(|| openpub_core::images::prepare(bytes)).unwrap_or_else(|_| Err(format!("{} is damaged or isn't a picture OpenPub can read.", file_name(p))))?;
+    if w == 0 || h == 0 || w > 30000 || h > 30000 {
+        return Err(format!("{} is too large to add ({w} × {h} pixels).", file_name(p)));
+    }
+    Ok((img, w, h))
+}
+
+/// The path with `.ext` added (not replacing what follows a dot in the name: "Report v1.2").
+fn with_ext(p: PathBuf, ext: &str) -> PathBuf {
+    let mut s = p.into_os_string();
+    s.push(".");
+    s.push(ext);
+    PathBuf::from(s)
 }
 
 /// A message from the page.
-fn on_message(body: &str, state: &Mutex<State>, proxy: &EventLoopProxy<UserEvent>) {
+fn on_message(body: &str, state: &Mutex<State>, proxy: &EventLoopProxy<UserEvent>, page_ready: &AtomicBool) {
     let Ok(msg) = serde_json::from_str::<serde_json::Value>(body) else { return };
     let doc = || msg["doc"].as_str().unwrap_or("{}").to_string();
     let forced = || if cfg!(debug_assertions) { msg["path"].as_str().map(PathBuf::from) } else { None };
@@ -528,7 +603,7 @@ fn on_message(body: &str, state: &Mutex<State>, proxy: &EventLoopProxy<UserEvent
         Some("open") => UserEvent::Choose,
         // only files from the recent list: the page can't name arbitrary paths
         Some("openRecent") => match msg["path"].as_str().map(PathBuf::from) {
-            Some(p) if recent::contains(&p) => UserEvent::Open(p),
+            Some(p) if recent::contains(&p) => UserEvent::Open { path: p, asked: false },
             _ => return,
         },
         Some("forgetRecent") => {
@@ -537,7 +612,25 @@ fn on_message(body: &str, state: &Mutex<State>, proxy: &EventLoopProxy<UserEvent
             }
             return;
         }
-        Some("new") => UserEvent::New { width: msg["width"].as_f64().unwrap_or(595.276), height: msg["height"].as_f64().unwrap_or(841.89) },
+        Some("new") => UserEvent::New {
+            width: msg["width"].as_f64().unwrap_or(595.276),
+            height: msg["height"].as_f64().unwrap_or(841.89),
+            // one of the page's own design names
+            template: msg["template"].as_str().filter(|t| !t.is_empty() && t.len() <= 32 && t.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')).map(str::to_string),
+        },
+        Some("ready") => {
+            page_ready.store(true, Ordering::SeqCst);
+            return;
+        }
+        // test aids: answer "lose the changes?", open any file, report the program's state
+        Some("testAnswer") if cfg!(debug_assertions) => {
+            state.lock().unwrap().test_answer = msg["value"].as_bool().unwrap_or(true);
+            return;
+        }
+        Some("openPath") if cfg!(debug_assertions) => match msg["path"].as_str() {
+            Some(p) => UserEvent::Open { path: PathBuf::from(p), asked: false },
+            None => return,
+        },
         Some("save") => UserEvent::Save { doc: doc(), ask: false, then: if msg["then"] == "close" { Then::Close } else { Then::Nothing }, forced: forced() },
         Some("saveAs") => UserEvent::Save { doc: doc(), ask: true, then: Then::Nothing, forced: forced() },
         Some("docx") => UserEvent::ExportDocx { doc: doc(), forced: forced() },
@@ -572,4 +665,28 @@ fn on_message(body: &str, state: &Mutex<State>, proxy: &EventLoopProxy<UserEvent
         _ => return,
     };
     let _ = proxy.send_event(event);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extension_added_not_replaced() {
+        assert_eq!(with_ext(PathBuf::from(r"C:\x\Report v1.2"), "pdf"), PathBuf::from(r"C:\x\Report v1.2.pdf"));
+        assert_eq!(with_ext(PathBuf::from("Newsletter"), "opub"), PathBuf::from("Newsletter.opub"));
+    }
+
+    #[test]
+    fn opub_without_pages_is_refused() {
+        let dir = std::env::temp_dir().join(format!("openpub-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("empty.opub");
+        let doc = Document { width: 595.0, height: 842.0, ..Default::default() };
+        opub::write(&doc, &path).unwrap();
+        assert!(!dir.join("empty.opub.tmp").exists(), "the temporary file is gone");
+        let err = opub::read(&path).unwrap_err();
+        assert!(err.contains("no pages"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

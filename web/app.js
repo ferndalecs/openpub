@@ -78,9 +78,18 @@
   function renderSheet(s, force) {
     if (s.rendered === scale && !force) return;
     s.clip.textContent = '';
-    const wrap = OpenPub.renderPage(doc, s.index, { scale, imageUrl, editable: true });
-    s.clip.appendChild(wrap);
-    wrap.opFinish();
+    let wrap;
+    try {
+      wrap = OpenPub.renderPage(doc, s.index, { scale, imageUrl, editable: true });
+      s.clip.appendChild(wrap);
+      wrap.opFinish();
+    } catch (e) {
+      // (something in the page OpenPub can't draw: say so, and carry on with the other pages)
+      s.clip.textContent = '';
+      s.rendered = scale;
+      showNotes([`Page ${s.index + 1} couldn't be drawn: ${e && e.message ? e.message : e}`]);
+      return;
+    }
     // page items fade out while the master page is edited
     const pg = wrap.querySelector('.op-page');
     if (pg) for (const e of pg.children) if (e.opShape && !e.opShape.from_master) e.classList.add('op-own');
@@ -340,14 +349,15 @@
     }
     undoStack.push(snapshot(page));
     if (undoStack.length > 200) undoStack.shift();
-    redoStack = [];
+    redoStack.length = 0; // (in place: restore() may be holding it)
     setDirty(true);
     updateButtons();
   }
   function restore(from, to) {
+    // text being typed is committed first, as its own step: Undo then takes back the typing
+    commitEdit();
     const e = from.pop();
     if (!e) return;
-    commitEdit();
     to.push(snapshot(e.all ? null : e.page));
     sel = null;
     textSel = null;
@@ -1110,6 +1120,21 @@
     return runs;
   }
   const runsLength = (runs) => runs.reduce((n, r) => n + (r.object ? 1 : r.text.length), 0);
+  /** A run's length as the editor counts characters (the page shows a field as one, and optional
+   * hyphens aren't counted): positions in the page and in the model agree. */
+  const visLen = (r) => (r.object || r.field ? 1 : r.text.length - (r.text.match(/\u00AD/g) || []).length);
+  /** Where in `t` the text after its first `n` counted characters starts. */
+  function textIndex(t, n) {
+    let i = 0, k = 0;
+    while (i < t.length && k < n) {
+      if (t[i] !== '\u00AD') k++;
+      i++;
+    }
+    return i;
+  }
+  /** Text with the characters OpenPub adds for laying it out (hyphenation points, the joiners in
+   * the spacers beside shapes) taken out. */
+  const plainOf = (t) => t.replace(/[\u00AD\u2060]/g, '');
 
   function paraDivs(flow) {
     return [...flow.children].filter((c) => !c.classList.contains('op-wrap'));
@@ -1169,7 +1194,7 @@
           }
         } else if (c.nodeType === 1) {
           if (c.classList.contains('op-bullet') || c.classList.contains('op-wrap')) continue;
-          if (c.classList.contains('op-obj') || (c.dataset && c.dataset.field)) {
+          if (c.classList.contains('op-obj') || (c.dataset && c.dataset.field) || c.classList.contains('op-tab') || c.tagName === 'BR') {
             const i = [...n.childNodes].indexOf(c);
             if (left === 0) return { node: n, offset: i };
             left--;
@@ -1202,7 +1227,7 @@
 
   function startEdit(page, shape, flow, ev, restoreSel) {
     commitEdit();
-    editing = { flow, owner: flow.opOwner, shape, page, before: JSON.stringify(flow.opOwner.paras) };
+    editing = { flow, owner: flow.opOwner, shape, page, before: JSON.stringify(flow.opOwner.paras), wasClean: !dirty };
     for (const e of flow.querySelectorAll('.op-empty')) {
       e.textContent = '';
       e.appendChild(document.createElement('br'));
@@ -1230,11 +1255,27 @@
     flow.addEventListener('blur', onEditBlur);
     flow.addEventListener('keydown', onEditKey);
     flow.addEventListener('paste', onEditPaste);
+    flow.addEventListener('input', onEditInput);
+    flow.addEventListener('copy', onEditCopy);
+    flow.addEventListener('cut', onEditCopy);
     showSel();
     updateButtons();
     syncToolbar();
   }
 
+  // text being typed counts as an unsaved change straight away (the window may be closed before
+  // the typing is committed)
+  function onEditInput() {
+    setDirty(true);
+  }
+  // (the copy is plain text: the hyphenation points and joiners added for layout are left out)
+  function onEditCopy(e) {
+    const s = window.getSelection();
+    if (!s.rangeCount || !e.clipboardData) return;
+    e.preventDefault();
+    e.clipboardData.setData('text/plain', plainOf(String(s)));
+    if (e.type === 'cut') document.execCommand('delete');
+  }
   function onEditBlur() {
     captureSelection();
     // toolbar fields take the focus; the selection is remembered so formatting can apply to it
@@ -1267,6 +1308,10 @@
     } else if (ctrl && key === 's') {
       e.preventDefault();
       save(false);
+    } else if (ctrl && key === 'p') {
+      e.preventDefault();
+      commitEdit();
+      printAll();
     } else if (ctrl && (key === 'c' || key === 'x')) {
       extClipTime = Date.now(); // copied text: a paste outside the text makes a text box from it
     }
@@ -1284,16 +1329,23 @@
     ed.flow.removeEventListener('blur', onEditBlur);
     ed.flow.removeEventListener('keydown', onEditKey);
     ed.flow.removeEventListener('paste', onEditPaste);
+    ed.flow.removeEventListener('input', onEditInput);
+    ed.flow.removeEventListener('copy', onEditCopy);
+    ed.flow.removeEventListener('cut', onEditCopy);
     ed.flow.contentEditable = 'false';
     const paras = readFlow(ed.flow, ed.owner.paras);
     const after = JSON.stringify(paras);
+    // (the text of linked boxes on other pages changes too)
+    const many = ed.owner._commit ? storyPagesOf([ed.shape]) : null;
     if (after !== ed.read) {
       // record the page as it was before typing started
       ed.owner.paras = JSON.parse(ed.before);
-      pushUndo(ed.page);
+      if (many) pushUndo(); else pushUndo(ed.page);
       ed.owner.paras = paras;
+    } else if (ed.wasClean) {
+      setDirty(false); // typed and taken out again
     }
-    rerender(ed.page);
+    if (many) many.forEach(rerender); else rerender(ed.page);
   }
 
   // ---- formatting --------------------------------------------------------------------------
@@ -1314,7 +1366,10 @@
     if (!sel) return [];
     if (cellSel && cellSel.shape === sel.shape) return rangeCells(cellSel);
     const out = [];
-    for (const s of sel.shapes) out.push(...owners(s));
+    for (const s of sel.shapes) {
+      const f = s.text && chainFlow(sel.page, s);
+      out.push(...owners(s).map((o) => (f && o === s.text ? f.opOwner : o)));
+    }
     return out;
   }
 
@@ -1322,18 +1377,26 @@
     const out = [];
     let pos = 0;
     for (const r of para.runs) {
-      const len = r.object ? 1 : r.text.length;
+      const len = visLen(r);
       const a = Math.max(s, pos), b = Math.min(e, pos + len);
-      if (r.object || b <= a) {
+      if (b <= a) {
         // an empty paragraph still takes the formatting so typing into it uses it
-        if (!r.object && len === 0 && s <= pos && e >= pos) fn(r);
+        if (!r.object && !r.field && len === 0 && s <= pos && e >= pos) fn(r);
         out.push(r);
+      } else if (r.object) {
+        out.push(r);
+      } else if (r.field) {
+        // (a field - a page number - is formatted whole)
+        const f = Object.assign({}, r);
+        fn(f);
+        out.push(f);
       } else {
-        if (a > pos) out.push(Object.assign({}, r, { text: r.text.slice(0, a - pos) }));
-        const mid = Object.assign({}, r, { text: r.text.slice(a - pos, b - pos) });
+        const ia = textIndex(r.text, a - pos), ib = textIndex(r.text, b - pos);
+        if (ia > 0) out.push(Object.assign({}, r, { text: r.text.slice(0, ia) }));
+        const mid = Object.assign({}, r, { text: r.text.slice(ia, ib) });
         fn(mid);
         out.push(mid);
-        if (b < pos + len) out.push(Object.assign({}, r, { text: r.text.slice(b - pos) }));
+        if (ib < r.text.length) out.push(Object.assign({}, r, { text: r.text.slice(ib) }));
       }
       pos += len;
     }
@@ -1353,11 +1416,14 @@
       resume = { page: editing.page, shape: editing.shape, owner: editing.owner, sel: textSel && { a: textSel.a, b: textSel.b } };
       commitEdit();
     }
+    if (textSel) textSel.owner = liveOwner(textSel.page, textSel.shape, textSel.owner);
     const target = textSel || (sel && { page: sel.page });
     if (!target) return;
     const paraFn = change.para || ('align' in change ? (p) => { p.align = change.align; } : null);
     const runKeys = Object.keys(change).filter((key) => key !== 'para' && key !== 'align');
-    pushUndo(target.page);
+    const many = storyPagesOf(textSel ? [textSel.shape] : sel.shapes);
+    if (many) pushUndo(); else pushUndo(target.page);
+    const touched = [];
     const ranged = textSel && (textSel.a.p !== textSel.b.p || textSel.a.o !== textSel.b.o);
     const toggleState = currentStyle() || {};
     const apply = (r) => {
@@ -1365,6 +1431,7 @@
     };
     if (textSel && (ranged || paraFn)) {
       const ps = textSel.owner.paras;
+      touched.push(textSel.owner);
       const last = Math.min(textSel.b.p, ps.length - 1);
       for (let p = textSel.a.p; p <= last; p++) {
         if (paraFn) paraFn(ps[p], p, ps, p === textSel.a.p);
@@ -1372,14 +1439,16 @@
       }
     } else {
       const list = textSel ? [textSel.owner] : targetOwners();
+      touched.push(...list);
       list.forEach((o, n) => o.paras.forEach((p, i) => {
         if (paraFn) paraFn(p, i, o.paras, n === 0 && i === 0);
         if (runKeys.length) applyRuns(p, 0, 1e9, apply);
       }));
     }
-    rerender(target.page);
+    commitViews(touched);
+    if (many) many.forEach(rerender); else rerender(target.page);
     if (resume) {
-      const flow = findFlow(resume.page, resume.shape, resume.owner);
+      const flow = findFlow(resume.page, resume.shape, resume.owner) || (resume.owner._commit && chainFlow(resume.page, resume.shape));
       if (flow) startEdit(resume.page, resume.shape, flow, null, resume.sel);
     }
     syncToolbar();
@@ -1603,17 +1672,117 @@
     addShape({ kind: 'shape', shape_type: 1, x: m, y: m, w: doc.width - 2 * m, h: doc.height - 2 * m, line: { color: '#000000', width: 1.5 }, wrap: 'none' }, false);
   }
 
+
+  // ---- linked text boxes ------------------------------------------------------------------------
+  // A story can flow through several linked boxes, on several pages. The first box holds the
+  // text; each box on the page shows a stand-in for its part ("view", render.js chainViews).
+
+  /** The pages showing the stories of linked boxes among `shapes`, when a story runs over more
+   * than one page (they all change together), else null. */
+  function storyPagesOf(shapes) {
+    const chains = OpenPub.storyChains(doc);
+    const ids = new Set();
+    const look = (s) => {
+      if (s && s.text && chains.has(s.text.story)) ids.add(s.text.story);
+      for (const c of (s && s.children) || []) look(c);
+    };
+    (shapes || []).forEach(look);
+    if (!ids.size) return null;
+    const pages = new Set();
+    for (const id of ids) for (const f of chains.get(id)) pages.add(f.page);
+    return pages.size > 1 ? [...pages].sort((a, b) => a - b) : null;
+  }
+  /** The flow showing a linked box's part of its story on the page (null for other boxes). */
+  function chainFlow(page, shape) {
+    const el = shapeEl(page, shape);
+    return el ? [...el.querySelectorAll('.op-flow')].find((f) => f.opOwner && f.opOwner._commit) || null : null;
+  }
+  /** The text body to change for `owner` now: a linked box's stand-in is replaced each time the
+   * page is drawn, so an old one is swapped for the current one. */
+  function liveOwner(page, shape, owner) {
+    if (!owner || !owner._commit) return owner;
+    const f = chainFlow(page, shape);
+    return f ? f.opOwner : owner;
+  }
+  /** Puts changes made to stand-ins back into their stories. */
+  function commitViews(list) {
+    for (const o of list) if (o && o._commit && JSON.stringify(o.paras) !== o._orig) o._commit(o.paras);
+  }
+  let lastStory = 0;
+  /** A story number no text in the publication has (nor any handed out before). */
+  function freshStory() {
+    let n = lastStory;
+    const walk = (list) => { for (const s of list) { if (s.text && s.text.story > n) n = s.text.story; if (s.children) walk(s.children); } };
+    doc.pages.forEach((pg) => walk(pg.shapes));
+    lastStory = n + 1;
+    return lastStory;
+  }
+  /** Copies of shapes (`copies`, made from `origs` on page `page`): copies of linked boxes from
+   * one story become a chain of their own (or, alone, an ordinary text box) holding the text the
+   * originals show, so they don't join the original story. Every copied text gets a new story. */
+  function unlinkCopies(origs, copies, page) {
+    const chains = OpenPub.storyChains(doc);
+    const groups = new Map();
+    const pair = (o, c) => {
+      if (o.text && c.text) {
+        if (chains.has(o.text.story)) {
+          if (!groups.has(o.text.story)) groups.set(o.text.story, []);
+          groups.get(o.text.story).push({ o, c });
+        } else c.text.story = freshStory();
+      }
+      (o.children || []).forEach((oc, i) => c.children && c.children[i] && pair(oc, c.children[i]));
+    };
+    origs.forEach((o, i) => copies[i] && pair(o, copies[i]));
+    for (const [id, list] of groups) {
+      list.sort((x, y) => (x.o.text.chain || 0) - (y.o.text.chain || 0));
+      const story = chains.get(id)[0].shape.text.paras;
+      const first = chainFlow(page, list[0].o), last = chainFlow(page, list[list.length - 1].o);
+      const from = first ? first.opOwner._range[0] : { p: 0, o: 0 };
+      const to = last ? last.opOwner._range[1] : null;
+      const text = clone(OpenPub.sliceStory(story, from, to));
+      const sid = freshStory();
+      list.forEach(({ c }, k) => {
+        c.text.story = sid;
+        c.text.paras = k === 0 ? text : [];
+        if (list.length > 1 && k > 0) c.text.chain = k;
+        else delete c.text.chain;
+      });
+    }
+  }
+  /** Pasted copies get stories of their own (each paste is a new copy). */
+  function restory(copies) {
+    const map = new Map();
+    const walk = (s) => {
+      if (s.text && s.text.story != null) {
+        if (!map.has(s.text.story)) map.set(s.text.story, freshStory());
+        s.text.story = map.get(s.text.story);
+      }
+      (s.children || []).forEach(walk);
+    };
+    copies.forEach(walk);
+  }
+
   // ---- find and replace -----------------------------------------------------------------------
 
   /** The text of a paragraph as searched: one character per text character; objects and fields
    * can't match. */
-  const paraText = (para) => para.runs.map((r) => (r.object ? '\uFFFC' : r.field ? '\uFFFC'.repeat(r.text.length) : r.text)).join('');
+  const paraText = (para) => para.runs.map((r) => (r.object || r.field ? '\uFFFC' : r.text.replace(/\u00AD/g, ''))).join('');
+  /** Lower case, one character for one (a few letters, such as the Turkish İ, become two
+   * characters in lower case: they're left as they are so positions stay right). */
+  function lower(s) {
+    let out = '';
+    for (const ch of s) {
+      const l = ch.toLowerCase();
+      out += l.length === ch.length ? l : ch;
+    }
+    return out;
+  }
 
   /** Every match in the publication, in reading order: { page, shape, oi, owner, p, o, len }. */
   function findMatches(q, matchCase) {
     const out = [];
     if (!q || !doc) return out;
-    const needle = matchCase ? q : q.toLowerCase();
+    const needle = matchCase ? q : lower(q);
     doc.pages.forEach((pg, page) => {
       let oi = 0;
       for (const shape of pg.shapes) {
@@ -1623,7 +1792,7 @@
         for (const owner of own) {
           if (!skip) {
             owner.paras.forEach((para, p) => {
-              const hay = matchCase ? paraText(para) : paraText(para).toLowerCase();
+              const hay = matchCase ? paraText(para) : lower(paraText(para));
               for (let o = hay.indexOf(needle); o >= 0; o = hay.indexOf(needle, o + needle.length)) out.push({ page, shape, oi, owner, p, o, len: needle.length });
             });
           }
@@ -1644,7 +1813,7 @@
     if (!doc) return;
     // start from the text selected in the publication
     const s = window.getSelection();
-    const picked = editing && s.rangeCount && editing.flow.contains(s.anchorNode) ? String(s).trim() : '';
+    const picked = editing && s.rangeCount && editing.flow.contains(s.anchorNode) ? plainOf(String(s)).trim() : '';
     commitEdit();
     closeMenus();
     $('findbar').hidden = false;
@@ -1662,8 +1831,25 @@
   }
 
   /** Shows a match: its page, its text box selected, the text marked. */
-  function showMatch(m) {
+  /** Where a match in a story of linked boxes is shown: the box, page, stand-in and position. */
+  function chainSpot(m) {
+    const frames = m.shape.text && m.owner === m.shape.text ? OpenPub.storyChains(doc).get(m.shape.text.story) : null;
+    if (!frames) return null;
+    const before = (x, y) => x.p < y.p || (x.p === y.p && x.o <= y.o);
+    for (const f of frames) {
+      if (sheets[f.page]) renderSheet(sheets[f.page]);
+      const flow = chainFlow(f.page, f.shape);
+      if (!flow) continue;
+      const [a, b] = flow.opOwner._range;
+      if (before(a, m) && (!b || !before(b, { p: m.p, o: m.o + 1 }))) {
+        return { page: f.page, shape: f.shape, owner: flow.opOwner, p: m.p - a.p, o: m.p === a.p ? m.o - a.o : m.o, len: m.len };
+      }
+    }
+    return null;
+  }
+  function showMatch(match) {
     commitEdit();
+    const m = Object.assign({}, match, chainSpot(match) || {});
     if (current !== m.page) goTo(m.page);
     const sheet = sheets[m.page];
     if (sheet) renderSheet(sheet);
@@ -1687,7 +1873,7 @@
       if (box.top < v.top + 90 || box.bottom > v.bottom - 30) view.scrollTop += box.top - (v.top + Math.min(200, v.height / 3));
       if (box.left < v.left + 10 || box.right > v.right - 10) view.scrollLeft += box.left - (v.left + v.width / 3);
     }
-    findLast = m;
+    findLast = match;
   }
 
   function findNext(quiet) {
@@ -1712,10 +1898,10 @@
     const out = [];
     let pos = 0, put = false;
     for (const r of para.runs) {
-      const n = r.object ? 1 : r.text.length;
+      const n = visLen(r);
       const a = Math.max(o, pos), b = Math.min(o + len, pos + n);
       if (!r.object && !r.field && b > a) {
-        out.push(Object.assign({}, r, { text: r.text.slice(0, a - pos) + (put ? '' : text) + r.text.slice(b - pos) }));
+        out.push(Object.assign({}, r, { text: r.text.slice(0, textIndex(r.text, a - pos)) + (put ? '' : text) + r.text.slice(textIndex(r.text, b - pos)) }));
         put = true;
       } else out.push(r);
       pos += n;
@@ -1727,7 +1913,7 @@
     const para = m.owner.paras[m.p];
     if (!para || !doc.pages[m.page] || !doc.pages[m.page].shapes.includes(m.shape)) return false;
     const t = paraText(para).substr(m.o, m.len);
-    return matchCase ? t === q : t.toLowerCase() === q.toLowerCase();
+    return matchCase ? t === q : lower(t) === lower(q);
   };
 
   function replaceOne() {
@@ -1735,9 +1921,10 @@
     if (!q) return;
     if (!findLast || !stillThere(findLast, q, matchCase)) { findLast = null; findNext(); return; }
     const m = findLast, text = $('findr').value;
-    pushUndo(m.page);
+    const many = storyPagesOf([m.shape]);
+    if (many) pushUndo(); else pushUndo(m.page);
     replaceRange(m.owner.paras[m.p], m.o, m.len, text);
-    rerender(m.page);
+    if (many) many.forEach(rerender); else rerender(m.page);
     // go on after the new text (it may contain the search text itself)
     findLast = Object.assign({}, m, { o: m.o + text.length - 1, len: 0 });
     const next = findNext();
@@ -1761,6 +1948,7 @@
     cellSel = null;
     hideSel();
     const pages = new Set(all.map((m) => m.page));
+    for (const pg of storyPagesOf(all.map((m) => m.shape)) || []) pages.add(pg);
     for (const pg of pages) redraw(pg);
     updateButtons();
     syncToolbar();
@@ -1790,7 +1978,7 @@
     format({ para: (p, i, list, first) => {
       const had = !!p.bullet;
       p.bullet = { text: '', number: fmt };
-      if (first && start > 1) p.bullet.start = start;
+      if (first && start > 1) p.bullet.start = Math.min(32767, Math.round(start));
       if (!had) listIndent(p);
     } });
   }
@@ -1821,6 +2009,7 @@
   /** Line spacing: a multiple of single spacing, or exactly `v` points. */
   function setSpacing(v, exact) {
     if (!(v > 0)) return;
+    v = Math.min(v, exact ? 1600 : 10);
     format({ para: (p) => {
       p.spacing = v;
       if (exact) p.spacing_exact = true; else delete p.spacing_exact;
@@ -1828,6 +2017,7 @@
   }
   function setParaSpace(key, v) {
     if (!(v >= 0)) return;
+    v = Math.min(v, 1600);
     format({ para: (p) => { p[key] = v; } });
   }
 
@@ -2126,12 +2316,14 @@
     commitEdit();
     const page = sel.page;
     pushUndo(page);
-    const copies = selOrdered().map((s) => {
+    const origs = selOrdered();
+    const copies = origs.map((s) => {
       const c = clone(s);
       reseq(c);
       shift(c, 12, 12);
       return c;
     });
+    unlinkCopies(origs, copies, page);
     insertShapes(page, copies);
     sel = { page, shape: copies[copies.length - 1], shapes: copies };
     textSel = null;
@@ -2238,6 +2430,7 @@
   /** Exact position / size from the ribbon (points). */
   function setGeom(key, v) {
     if (!sel || v == null || !isFinite(v)) return;
+    v = Math.max(-14400, Math.min(14400, v)); // (200 inches either way)
     commitEdit();
     const page = sel.page;
     pushUndo(page);
@@ -2302,6 +2495,7 @@
   }
   function setMargin(i, v) {
     if (v == null || !(v >= 0)) return;
+    v = Math.min(v, 720);
     editBodies((b) => { b.margins = (b.margins || [0, 0, 0, 0]).slice(); b.margins[i] = v; });
   }
   const setVAlign = (v) => editBodies((b) => { b.valign = v; });
@@ -2315,6 +2509,7 @@
   }
   function setColumnGap(v) {
     if (v == null || !(v >= 0)) return;
+    v = Math.min(v, 720);
     editBodies((b) => { b.column_gap = v; });
   }
 
@@ -2769,6 +2964,7 @@
     commitEdit();
     const list = selOrdered();
     clip = { shapes: clone(list), page: sel.page, text: plainText(list), n: 0, cut: !!cut, time: Date.now() };
+    unlinkCopies(list, clip.shapes, sel.page);
     if (cut) removeSelected();
     return true;
   }
@@ -2786,6 +2982,7 @@
       if (off) shift(c, off, off);
       return c;
     });
+    restory(copies);
     insertShapes(page, copies);
     sel = { page, shape: copies[copies.length - 1], shapes: copies };
     textSel = null;
@@ -2887,6 +3084,8 @@
     const copy = clone(doc.pages[current]);
     // master items stay the master's; the page's own items are new shapes
     for (const s of copy.shapes) if (!s.from_master) reseq(s);
+    const own = (pg) => pg.shapes.filter((s) => !s.from_master);
+    unlinkCopies(own(doc.pages[current]), own(copy), current);
     doc.pages.splice(current + 1, 0, copy);
     afterPages(current + 1);
   }
@@ -3037,7 +3236,6 @@
 
   // ---- ready-made designs ---------------------------------------------------------------------
 
-  let pendingTemplate = null;
   const A4W = 210 * MM, A4H = 297 * MM;
   /** Builders of the designs: each returns the pages (lists of shapes) for the given page size. */
   const TEMPLATES = {
@@ -3153,7 +3351,7 @@
       card.appendChild(sheet);
       card.appendChild(mk('b', '', t.name));
       card.appendChild(mk('span', '', t.what));
-      card.addEventListener('click', () => { pendingTemplate = id; send({ cmd: 'new', width: t.w, height: t.h }); });
+      card.addEventListener('click', () => send({ cmd: 'new', width: t.w, height: t.h, template: id }));
       box.appendChild(card);
     }
   }
@@ -3174,6 +3372,14 @@
       for (const img of wrap.querySelectorAll('img')) {
         const blob = await (await fetch(img.src)).blob();
         img.src = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
+      }
+      // (a picture page background too)
+      for (const bg of wrap.querySelectorAll('.op-pagebg')) {
+        const m = /url\("([^"]+)"\)/.exec(bg.style.backgroundImage || '');
+        if (!m || m[1].startsWith('data:')) continue;
+        const blob = await (await fetch(m[1])).blob();
+        const data = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
+        bg.style.backgroundImage = `url("${data}")`;
       }
       const w = Math.round(doc.width * PX * scale), h = Math.round(doc.height * PX * scale);
       const css = (document.getElementById('op-css') || {}).textContent || '';
@@ -3307,10 +3513,8 @@
       return;
     }
     doc = data;
-    if (pendingTemplate) {
-      if (!doc.path) applyTemplate(pendingTemplate);
-      pendingTemplate = null;
-    }
+    if (typeof data.template === 'string' && !doc.path) applyTemplate(data.template);
+    delete doc.template;
     sel = null;
     editing = null;
     textSel = null;
@@ -3764,6 +3968,7 @@
       findMatches, findNext, replaceOne, replaceAll, showFind, hideFind, stepSize, toggleScript, replaceRange,
       replacePicture, setCropMode, cropTo, setCropSide, copySel, pasteClip, handlePaste, setMasterMode, showTab, syncToolbar,
       quiet: (v) => { quiet = !!v; }, toLocal, gridHit, rowEdges,
+      clean: () => setDirty(false),
     },
   };
 
