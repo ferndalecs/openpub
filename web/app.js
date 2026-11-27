@@ -843,6 +843,19 @@
     const sheetEl = e.target.closest('.sheet');
     if (!sheetEl || !sheetEl.opSheet) { select(0, null); return; }
     const page = sheetEl.opSheet.index;
+    if (tool) {
+      e.preventDefault();
+      commitEdit();
+      if (current !== page) setCurrent(page, true);
+      drag = { kind: 'draw', page, sheetEl, p0: sheetPoint(sheetEl, e.clientX, e.clientY), p: null, box: null, targets: snapTargets(page, null) };
+      if (!e.altKey) {
+        const sx = snap1([drag.p0.x], drag.targets.xs, snapTol()), sy = snap1([drag.p0.y], drag.targets.ys, snapTol());
+        if (sx) drag.p0.x += sx.d;
+        if (sy) drag.p0.y += sy.d;
+      }
+      capture(e);
+      return;
+    }
     const hd = e.target.classList.contains('h') && e.target.dataset.h;
     if (hd && sel) { e.preventDefault(); startHandle(e, hd); return; }
     if (editing && e.target.closest('.op-flow') === editing.flow) return; // typing: let the caret move
@@ -930,10 +943,20 @@
     if (d.kind === 'move') {
       if (!d.moved && Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 4) return;
       d.moved = true;
-      d.dx = dx;
-      d.dy = dy;
-      for (const el of d.els) if (el) el.style.translate = `${dx}pt ${dy}pt`;
-      for (const b of selBoxes) b.style.translate = `${dx * k()}px ${dy * k()}px`;
+      let mx = dx, my = dy, gx = null, gy = null;
+      if (!e.altKey && sel) {
+        if (!d.u0) { d.u0 = union(sel.shapes.map(aabb)); d.targets = snapTargets(d.page, sel.shapes); }
+        const u = d.u0, tol = snapTol();
+        const sx = snap1([u.x + dx, u.x + dx + u.w / 2, u.x + dx + u.w], d.targets.xs, tol);
+        const sy = snap1([u.y + dy, u.y + dy + u.h / 2, u.y + dy + u.h], d.targets.ys, tol);
+        if (sx) { mx += sx.d; gx = sx.at; }
+        if (sy) { my += sy.d; gy = sy.at; }
+      }
+      if (sheets[d.page]) showGuides(sheets[d.page].el, gx, gy);
+      d.dx = mx;
+      d.dy = my;
+      for (const el of d.els) if (el) el.style.translate = `${mx}pt ${my}pt`;
+      for (const b of selBoxes) b.style.translate = `${mx * k()}px ${my * k()}px`;
     } else if (d.kind === 'size' || d.kind === 'crop') {
       if (!sel) return;
       const sh = sel.shape, o = d.o, h = d.h, rot = sh.rotation || 0, a = rad(rot);
@@ -963,6 +986,16 @@
         if (h.includes('n')) dd[1] = o.h - ht; else if (h.includes('s')) dd[3] = ht - o.h;
       }
       d.n = reframe(o, dd, rot);
+      if (d.kind === 'size' && !rot && !e.shiftKey && !e.altKey && sh.kind !== 'line') {
+        if (!d.targets) d.targets = snapTargets(sel.page, sel.shapes);
+        const t = d.targets, tol = snapTol(), n = d.n;
+        let gx = null, gy = null;
+        if (h.includes('w')) { const s = snap1([n.x], t.xs, tol); if (s && n.w - s.d >= 6) { n.x += s.d; n.w -= s.d; gx = s.at; } }
+        else if (h.includes('e')) { const s = snap1([n.x + n.w], t.xs, tol); if (s && n.w + s.d >= 6) { n.w += s.d; gx = s.at; } }
+        if (h.includes('n')) { const s = snap1([n.y], t.ys, tol); if (s && n.h - s.d >= 6) { n.y += s.d; n.h -= s.d; gy = s.at; } }
+        else if (h.includes('s')) { const s = snap1([n.y + n.h], t.ys, tol); if (s && n.h + s.d >= 6) { n.h += s.d; gy = s.at; } }
+        if (sheets[sel.page]) showGuides(sheets[sel.page].el, gx, gy);
+      }
       const box = selBoxes[0];
       if (box) placeBox(box, d.n.x, d.n.y, d.n.w, d.n.h, rot);
       if (d.kind === 'crop') placeGhost(box, d.n.w, d.n.h, d.vc);
@@ -977,6 +1010,38 @@
       const sh = d.shape;
       if (selBoxes[0]) placeBox(selBoxes[0], sh.x, sh.y, sh.w, sh.h, a);
       updateSelInfo('Rotation ' + Math.round(a) + '°');
+    } else if (d.kind === 'draw') {
+      const p = sheetPoint(d.sheetEl, e.clientX, e.clientY);
+      if (!d.box) {
+        if (Math.hypot(p.x - d.p0.x, p.y - d.p0.y) * k() < 4) return;
+        d.box = document.createElement('div');
+        d.box.className = 'band draw';
+        d.sheetEl.appendChild(d.box);
+      }
+      let gx = null, gy = null;
+      if (!e.altKey) {
+        const sx = snap1([p.x], d.targets.xs, snapTol()), sy = snap1([p.y], d.targets.ys, snapTol());
+        if (sx) { p.x += sx.d; gx = sx.at; }
+        if (sy) { p.y += sy.d; gy = sy.at; }
+      }
+      if (e.shiftKey) {
+        const ddx = p.x - d.p0.x, ddy = p.y - d.p0.y;
+        if (tool && tool.kind === 'line') {
+          // lines at 45° steps
+          const a = Math.round(Math.atan2(ddy, ddx) / (Math.PI / 4)) * (Math.PI / 4), len = Math.hypot(ddx, ddy);
+          p.x = d.p0.x + Math.round(Math.cos(a) * len * 1000) / 1000;
+          p.y = d.p0.y + Math.round(Math.sin(a) * len * 1000) / 1000;
+        } else {
+          // squares and circles
+          const m = Math.max(Math.abs(ddx), Math.abs(ddy));
+          p.x = d.p0.x + Math.sign(ddx || 1) * m;
+          p.y = d.p0.y + Math.sign(ddy || 1) * m;
+        }
+      }
+      d.p = p;
+      showGuides(d.sheetEl, gx, gy);
+      placeBox(d.box, Math.min(p.x, d.p0.x), Math.min(p.y, d.p0.y), Math.abs(p.x - d.p0.x), Math.max(Math.abs(p.y - d.p0.y), 1 / k()), 0);
+      updateSelInfo(`${fmtCm(Math.abs(p.x - d.p0.x))} × ${fmtCm(Math.abs(p.y - d.p0.y))} cm`);
     } else if (d.kind === 'band') {
       const p = sheetPoint(d.sheetEl, e.clientX, e.clientY);
       if (!d.box) {
@@ -1016,6 +1081,23 @@
     const d = drag;
     drag = null;
     if (!d) return;
+    clearGuides();
+    if (d.kind === 'draw') {
+      if (d.box) d.box.remove();
+      if (!tool) return;
+      if (d.p && (Math.abs(d.p.x - d.p0.x) > 1 || Math.abs(d.p.y - d.p0.y) > 1)) {
+        const p = d.p, p0 = d.p0;
+        const f = { x: Math.min(p.x, p0.x), y: Math.min(p.y, p0.y), w: Math.abs(p.x - p0.x), h: Math.abs(p.y - p0.y) };
+        if (tool.kind !== 'line') { f.w = Math.max(f.w, 6); f.h = Math.max(f.h, 6); }
+        placeTool(d.page, f, { h: p.x < p0.x, v: p.y < p0.y });
+      } else {
+        // a click: the usual size, centred where it was clicked (a line goes to the right)
+        const [w, h] = toolSize(tool);
+        const x = tool.kind === 'line' ? d.p0.x : d.p0.x - w / 2, y = tool.kind === 'line' ? d.p0.y : d.p0.y - h / 2;
+        placeTool(d.page, { x: Math.max(0, Math.min(doc.width - w, x)), y: Math.max(0, Math.min(doc.height - h, y)), w, h });
+      }
+      return;
+    }
     if (d.kind === 'band') {
       if (d.box) d.box.remove();
       if (d.r) {
@@ -1560,7 +1642,7 @@
           svg.appendChild(node);
         }
         b.appendChild(svg);
-        b.addEventListener('click', () => addBasic(type));
+        b.addEventListener('click', () => (type === 20 ? armTool('line', 20) : armTool('shape', type, 'a ' + name.toLowerCase())));
         cells.appendChild(b);
       }
       if (!cells.children.length) continue;
@@ -2069,6 +2151,341 @@
     if (stuck) showNotes(["Even at 6 pt the text doesn't fit: make the box bigger, or use Make box fit text."], 7000);
   }
 
+
+  // ---- drawing new boxes, shapes and lines with the mouse -----------------------------------------
+  // A tool is chosen with a button; then a click on the page puts the thing there at its usual
+  // size, or a drag draws it at the size wanted. Esc (or Cancel) puts the tool down.
+  let tool = null;
+  const TOOL_NAMES = { text: 'a text box', line: 'a line' };
+  function armTool(kind, type, name) {
+    if (!doc) return;
+    commitEdit();
+    closeMenus();
+    tool = { kind, type };
+    document.body.classList.add('drawing');
+    const what = name || TOOL_NAMES[kind] || 'the shape';
+    $('toolhint').firstChild.textContent = kind === 'line' ? 'Drag on the page from one end of the line to the other.' : `Click on the page to add ${what}, or drag to draw it the size you want.`;
+    $('toolhint').hidden = false;
+    updateSelInfo('Drawing ' + what + ' – Esc to cancel');
+  }
+  function cancelTool() {
+    if (!tool) return false;
+    tool = null;
+    document.body.classList.remove('drawing');
+    $('toolhint').hidden = true;
+    updateSelInfo();
+    return true;
+  }
+  /** Puts the chosen thing on the page: `f` its frame, `flip` for a line drawn right to left or upwards. */
+  function placeTool(page, f, flip) {
+    const t = tool;
+    cancelTool();
+    if (!t) return;
+    if (current !== page) setCurrent(page, true);
+    if (t.kind === 'text') addShape({ kind: 'text', shape_type: 202, x: f.x, y: f.y, w: f.w, h: f.h, text: newTextBody() }, true);
+    else if (t.kind === 'line') {
+      const s = { kind: 'line', shape_type: 20, x: f.x, y: f.y, w: f.w, h: f.h, line: { color: '#000000', width: 1 } };
+      if (flip && flip.h) s.flip_h = true;
+      if (flip && flip.v) s.flip_v = true;
+      addShape(s, false);
+    } else addShape({ kind: 'shape', shape_type: t.type, x: f.x, y: f.y, w: f.w, h: f.h, line: { color: '#000000', width: 0.75 }, fill: { color: '#ffffff', opacity: 1 } }, false);
+  }
+  /** The usual size of what a tool puts on the page with a click. */
+  function toolSize(t) {
+    return t.kind === 'text' ? [220, 60] : t.kind === 'line' ? [150, 0] : [140, 90];
+  }
+
+  // ---- lining things up while moving, sizing and drawing ------------------------------------------
+  // Edges and centres snap to the page's edges, centre and margins (1.27 cm) and to other objects'
+  // edges and centres when they come within a few pixels; a pink guide shows what lined up. Hold
+  // Alt to place freely.
+  const SNAP_MARGIN = 36;
+  function snapTargets(page, skip) {
+    const W = doc.width, H = doc.height;
+    const xs = [0, W / 2, W, SNAP_MARGIN, W - SNAP_MARGIN], ys = [0, H / 2, H, SNAP_MARGIN, H - SNAP_MARGIN];
+    for (const s of doc.pages[page].shapes) {
+      if ((skip && skip.includes(s)) || !inMode(s)) continue;
+      const b = aabb(s);
+      xs.push(b.x, b.x + b.w / 2, b.x + b.w);
+      ys.push(b.y, b.y + b.h / 2, b.y + b.h);
+    }
+    return { xs, ys };
+  }
+  /** The smallest move that puts one of `cands` on one of `targets` (within `tol`), or null. */
+  function snap1(cands, targets, tol) {
+    let best = null;
+    for (const c of cands) for (const t of targets) {
+      const d = t - c;
+      if (Math.abs(d) <= tol && (!best || Math.abs(d) < Math.abs(best.d))) best = { d, at: t };
+    }
+    return best;
+  }
+  function showGuides(sheetEl, gx, gy) {
+    for (const g of sheetEl.querySelectorAll('.snapline')) g.remove();
+    if (gx != null) { const g = document.createElement('div'); g.className = 'snapline v'; g.style.left = gx * k() + 'px'; sheetEl.appendChild(g); }
+    if (gy != null) { const g = document.createElement('div'); g.className = 'snapline h'; g.style.top = gy * k() + 'px'; sheetEl.appendChild(g); }
+  }
+  function clearGuides() {
+    for (const g of pagesEl.querySelectorAll('.snapline')) g.remove();
+  }
+  const snapTol = () => 6 / k();
+
+  // ---- the right-click menu ---------------------------------------------------------------------
+  function ctxItem(label, keys, fn, enabled) {
+    const b = document.createElement('button');
+    b.setAttribute('role', 'menuitem');
+    b.appendChild(document.createTextNode(label));
+    if (keys) b.appendChild(mk('kbd', '', keys));
+    if (enabled === false) b.disabled = true;
+    b.addEventListener('click', () => { hideCtx(); fn(); });
+    return b;
+  }
+  function hideCtx() {
+    $('ctxmenu').hidden = true;
+  }
+  /** Starts typing in a selected box (or WordArt's words), at the end of its text. */
+  function editTextOf(page, shape) {
+    if (shape.wordart) { editWordArt(page, shape); return; }
+    if (!shape.text && (shape.kind === 'shape' || shape.kind === 'text')) {
+      pushUndo(page);
+      shape.text = newTextBody();
+      rerender(page);
+    }
+    const el = shapeEl(page, shape);
+    const flow = el && el.querySelector('.op-flow');
+    if (flow && flow.opOwner) startEdit(page, shape, flow, null, { a: { p: 1e6, o: 1e9 }, b: { p: 1e6, o: 1e9 } });
+  }
+  function showCtx(x, y, page, shape, at) {
+    const m = $('ctxmenu');
+    m.textContent = '';
+    const add = (b) => m.appendChild(b);
+    const sep = () => m.appendChild(document.createElement('hr'));
+    if (shape) {
+      const one = sel && sel.shapes.length === 1;
+      add(ctxItem('Cut', 'Ctrl+X', () => copyButton(true)));
+      add(ctxItem('Copy', 'Ctrl+C', () => copyButton(false)));
+      add(ctxItem('Paste', 'Ctrl+V', pasteButton));
+      add(ctxItem('Duplicate', '', duplicate));
+      add(ctxItem('Delete', 'Del', removeSelected));
+      sep();
+      if (one && (shape.wordart || shape.kind === 'text' || shape.kind === 'shape')) add(ctxItem(shape.wordart ? 'Edit the words' : 'Type text in it', 'Enter', () => editTextOf(page, shape)));
+      if (one && shape.image != null && shape.kind === 'picture') add(ctxItem('Change picture…', '', replacePicture));
+      if (one && (shape.kind === 'text' || shape.text) && !shape.wordart) add(ctxItem('Make box fit text', '', fitBoxToText, fitTargets().length > 0));
+      add(ctxItem('Bring to front', '', () => reorder(true)));
+      add(ctxItem('Send to back', '', () => reorder(false)));
+      if (sel && sel.shapes.length > 1) add(ctxItem('Group', '', groupSel));
+      if (one && shape.kind === 'group') add(ctxItem('Ungroup', '', ungroupSel));
+    } else {
+      add(ctxItem('Paste', 'Ctrl+V', pasteButton));
+      add(ctxItem('Select all', 'Ctrl+A', selectAll));
+      sep();
+      add(ctxItem('Add a text box here', '', () => {
+        tool = { kind: 'text' };
+        placeTool(page, { x: Math.max(0, Math.min(doc.width - 220, at.x)), y: Math.max(0, Math.min(doc.height - 60, at.y)), w: 220, h: 60 });
+      }));
+      add(ctxItem('Add a picture…', '', insertPicture));
+    }
+    m.hidden = false;
+    const r = m.getBoundingClientRect();
+    m.style.left = Math.min(x, window.innerWidth - r.width - 6) + 'px';
+    m.style.top = Math.min(y, window.innerHeight - r.height - 6) + 'px';
+    const first = m.querySelector('button:not(:disabled)');
+    if (first) first.focus({ preventScroll: true });
+  }
+  document.addEventListener('contextmenu', (e) => {
+    const t = e.target;
+    // in text being typed, and in boxes to type in: Windows' own menu (spelling, cut, copy, paste)
+    if (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') return;
+    e.preventDefault();
+    hideCtx();
+    if (!doc || busy || drag) return;
+    const sheetEl = t.closest && t.closest('.sheet');
+    if (!sheetEl || !sheetEl.opSheet) return;
+    cancelTool();
+    closeMenus();
+    const page = sheetEl.opSheet.index;
+    const shape = topShape(t, sheetEl);
+    if (current !== page) setCurrent(page, true);
+    if (shape && !(sel && sel.page === page && sel.shapes.includes(shape))) select(page, shape);
+    if (!shape) select(page, null);
+    showCtx(e.clientX, e.clientY, page, shape, sheetPoint(sheetEl, e.clientX, e.clientY));
+  });
+  document.addEventListener('pointerdown', (e) => { if (!$('ctxmenu').contains(e.target)) hideCtx(); }, true);
+  $('ctxmenu').addEventListener('keydown', (e) => {
+    const items = [...$('ctxmenu').querySelectorAll('button:not(:disabled)')];
+    const i = items.indexOf(document.activeElement);
+    if (e.key === 'Escape') { e.preventDefault(); hideCtx(); view.focus({ preventScroll: true }); }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); const n = items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]; if (n) n.focus(); }
+    e.stopPropagation();
+  });
+
+  // ---- colour swatches --------------------------------------------------------------------------
+  // The colour boxes open a palette (and the publication's own and recently used colours); "More
+  // colours…" opens Windows' colour picker.
+  const SWATCHES = [
+    '#000000', '#262626', '#404040', '#595959', '#7f7f7f', '#a6a6a6', '#bfbfbf', '#d9d9d9', '#f2f2f2', '#ffffff',
+    '#b71c1c', '#e65100', '#f9a825', '#1b5e20', '#00695c', '#01579b', '#0d47a1', '#1a237e', '#4a148c', '#880e4f',
+    '#e53935', '#fb8c00', '#fdd835', '#43a047', '#00897b', '#039be5', '#1e88e5', '#3949ab', '#8e24aa', '#d81b60',
+    '#e57373', '#ffb74d', '#fff176', '#81c784', '#4db6ac', '#4fc3f7', '#64b5f6', '#7986cb', '#ba68c8', '#f06292',
+    '#ffcdd2', '#ffe0b2', '#fff9c4', '#c8e6c9', '#b2dfdb', '#b3e5fc', '#bbdefb', '#c5cae9', '#e1bee7', '#f8bbd0',
+  ];
+  const COLOUR_INPUTS = ['color', 'pgbg', 'fill', 'fill2', 'shadowcolor', 'linecolor', 'cellfill', 'tblhead', 'tblband', 'bcolor'];
+  const recentColours = [];
+  let swatchFor = null;
+  /** The colours the publication uses most (up to 10). */
+  function docColours() {
+    const n = new Map();
+    const count = (c) => { if (isHex(c)) { c = c.toLowerCase(); n.set(c, (n.get(c) || 0) + 1); } };
+    const walk = (s) => {
+      if (s.fill) { count(s.fill.color); count(s.fill.color2); }
+      if (s.line) count(s.line.color);
+      for (const o of owners(s)) for (const p of o.paras) for (const r of p.runs) count(r.color);
+      for (const c of s.children || []) walk(c);
+    };
+    if (doc) for (const p of doc.pages) { count(p.background); for (const s of p.shapes) walk(s); }
+    return [...n.entries()].sort((a, b) => b[1] - a[1]).map((e) => e[0]).slice(0, 10);
+  }
+  function addRecentColour(c) {
+    if (!isHex(c)) return;
+    c = c.toLowerCase();
+    const i = recentColours.indexOf(c);
+    if (i >= 0) recentColours.splice(i, 1);
+    recentColours.unshift(c);
+    recentColours.length = Math.min(recentColours.length, 10);
+  }
+  function chooseColour(input, c) {
+    hideSwatches();
+    input.value = c;
+    addRecentColour(c);
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  function openSwatches(input) {
+    const p = $('swatchpop');
+    p.textContent = '';
+    swatchFor = input;
+    const group = (title, list) => {
+      if (!list.length) return;
+      p.appendChild(mk('h4', '', title));
+      const g = mk('div', 'sw');
+      for (const c of list) {
+        const b = document.createElement('button');
+        b.style.background = c;
+        b.title = c;
+        b.setAttribute('aria-label', 'Colour ' + c);
+        b.addEventListener('mousedown', (e) => e.preventDefault());
+        b.addEventListener('click', () => chooseColour(input, c));
+        g.appendChild(b);
+      }
+      p.appendChild(g);
+    };
+    group('Colours', SWATCHES);
+    group('In this publication', docColours());
+    group('Recently used', recentColours);
+    const more = mk('button', 'more', 'More colours…');
+    more.addEventListener('click', () => {
+      hideSwatches();
+      input.opNative = true;
+      try { input.showPicker(); } catch (_) { input.click(); }
+    });
+    p.appendChild(more);
+    p.hidden = false;
+    const r = input.closest('label') ? input.closest('label').getBoundingClientRect() : input.getBoundingClientRect();
+    const pr = p.getBoundingClientRect();
+    p.style.left = Math.max(4, Math.min(r.left, window.innerWidth - pr.width - 6)) + 'px';
+    p.style.top = Math.min(r.bottom + 3, window.innerHeight - pr.height - 6) + 'px';
+  }
+  function hideSwatches() {
+    $('swatchpop').hidden = true;
+    swatchFor = null;
+  }
+  for (const id of COLOUR_INPUTS) {
+    const input = $(id);
+    if (!input) continue;
+    input.addEventListener('click', (e) => {
+      if (input.opNative) { input.opNative = false; return; } // "More colours…": Windows' picker
+      e.preventDefault();
+      if (input.disabled) return;
+      if (swatchFor === input) { hideSwatches(); return; }
+      closeMenus();
+      openSwatches(input);
+    });
+    input.addEventListener('change', () => addRecentColour(input.value));
+  }
+  document.addEventListener('pointerdown', (e) => {
+    if ($('swatchpop').hidden || $('swatchpop').contains(e.target)) return;
+    if (swatchFor && (e.target === swatchFor || (swatchFor.closest('label') && swatchFor.closest('label').contains(e.target)))) return;
+    hideSwatches();
+  }, true);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('swatchpop').hidden) { hideSwatches(); e.stopPropagation(); } }, true);
+
+  // ---- arrowheads -------------------------------------------------------------------------------
+  function setArrows(v) {
+    editShapes((s) => {
+      if (s.kind !== 'line' || !s.line) return;
+      const start = v === 'start' || v === 'both', end = v === 'end' || v === 'both';
+      s.line.start_arrow = start ? 1 : 0;
+      s.line.end_arrow = end ? 1 : 0;
+      for (const key of ['start_arrow_w', 'start_arrow_l', 'end_arrow_w', 'end_arrow_l']) if (s.line[key] == null) s.line[key] = 1;
+    });
+  }
+
+  // ---- pictures dropped on the page or pasted ----------------------------------------------------
+  function pastePicture(file) {
+    if (file.size > 50 * 1024 * 1024) { showNotes(['The pasted picture is too large to add (the limit is 50 MB).']); return; }
+    const fr = new FileReader();
+    fr.onload = () => {
+      const s = String(fr.result);
+      const data = s.slice(s.indexOf(',') + 1);
+      send({ cmd: 'pastePicture', data });
+    };
+    fr.readAsDataURL(file);
+  }
+  /** Pictures read by the program (`list` of { index, w, h, mime }), put on the page where they
+   * were dropped (`at`: a point of the window in device pixels) or in view. */
+  function picturesAdded(list, at) {
+    if (!doc || !list || !list.length) return;
+    version++;
+    commitEdit();
+    cancelTool();
+    let page = current, cx = null, cy = null;
+    if (at) {
+      const dpr = window.devicePixelRatio || 1;
+      const x = at[0] / dpr, y = at[1] / dpr;
+      const t = document.elementFromPoint(x, y);
+      const sh = t && t.closest && t.closest('.sheet');
+      if (sh && sh.opSheet) {
+        page = sh.opSheet.index;
+        const p = sheetPoint(sh, x, y);
+        cx = p.x;
+        cy = p.y;
+      }
+    }
+    if (page !== current) setCurrent(page, true);
+    pushUndo(page);
+    const most = list.length > 1 ? 0.4 : 0.6;
+    const added = list.map((it, n) => {
+      if (doc.images && !doc.images[it.index]) doc.images[it.index] = { mime: it.mime || 'image/png', orientation: 1 };
+      let pw = it.w * 0.75, ph = it.h * 0.75;
+      const f = Math.min(1, (doc.width * most) / pw, (doc.height * most) / ph);
+      pw *= f;
+      ph *= f;
+      let x, y;
+      if (cx != null) { x = cx - pw / 2 + n * 12; y = cy - ph / 2 + n * 12; } else { const p = visibleSpot(pw, ph); x = p.x + n * 12; y = p.y + n * 12; }
+      x = Math.max(0, Math.min(doc.width - pw, x));
+      y = Math.max(0, Math.min(doc.height - ph, y));
+      return { kind: 'picture', shape_type: 75, x, y, w: pw, h: ph, image: it.index, seq: nextSeq++ };
+    });
+    insertShapes(page, added);
+    sel = { page, shape: added[added.length - 1], shapes: added };
+    textSel = null;
+    cellSel = null;
+    cropMode = false;
+    rerender(page);
+    showSel();
+    updateButtons();
+    syncToolbar();
+  }
+
   // ---- linked text boxes ------------------------------------------------------------------------
   // A story can flow through several linked boxes, on several pages. The first box holds the
   // text; each box on the page shows a stand-in for its part ("view", render.js chainViews).
@@ -2489,6 +2906,8 @@
     if (f && isHex(f.fill.color)) $('fill').value = f.fill.color;
     setv('transp', f ? Math.round((1 - (f.fill.opacity == null ? 1 : f.fill.opacity)) * 100) : '');
     if (l && isHex(l.line.color)) $('linecolor').value = l.line.color;
+    const ln = lv.find((s) => s.kind === 'line' && s.line);
+    if (ln) setv('arrows', ln.line.start_arrow && ln.line.end_arrow ? 'both' : ln.line.start_arrow ? 'start' : ln.line.end_arrow ? 'end' : 'none');
     // gradient, shadow, link, WordArt
     const grad = f && f.fill.color2 ? f.fill : null;
     setv('graddir', grad ? String(grad.angle || 0) : '');
@@ -2597,6 +3016,7 @@
     en(['shadowbtn', 'shadowcolor', 'linkbtn'], s);
     en(['addwa'], has);
     en(['linecolor', 'linewidth', 'dash'], s && lv.length > 0);
+    en(['arrows'], s && lv.some((x) => x.kind === 'line'));
     en(['gx', 'gy', 'grot', 'rotl', 'rotr', 'rot0'], s);
     en(['gw', 'gh'], s && n === 1);
     en(['ml', 'mt', 'mr', 'mb', 'vt', 'vm', 'vb', 'ncols', 'colgap'], s && lv.some((x) => x.text));
@@ -3434,7 +3854,12 @@
     e.preventDefault();
     clearTimeout(pasteTimer);
     pasteTimer = 0;
-    handlePaste((e.clipboardData || window.clipboardData).getData('text/plain'));
+    const cd = e.clipboardData || window.clipboardData;
+    const text = cd.getData('text/plain');
+    // a picture (a screenshot, a picture copied from a web page): when there's no text with it
+    const pic = !text.trim() && doc && !(clip && clip.time > extClipTime) && [...(cd.files || [])].find((f) => /^image\//.test(f.type));
+    if (pic) { pastePicture(pic); return; }
+    handlePaste(text);
   });
   window.addEventListener('blur', () => { extClipTime = Date.now(); });
   function pasteButton() {
@@ -3914,6 +4339,9 @@
     clearTimeout(autosaveTimer);
     autosaveTimer = 0;
     lastAutosave = 0;
+    cancelTool();
+    hideCtx();
+    hideSwatches();
     unsavedSince = 0;
     $('savebar').hidden = true;
     if (masterMode) setMasterMode(false);
@@ -4117,10 +4545,12 @@
   on('inspage', addPage);
   on('tblinsert', () => { closeMenus(); addTable(num('tblrows'), num('tblcols')); });
   on('addpic', insertPicture);
-  on('addrect', () => addBasic(1));
-  on('addellipse', () => addBasic(3));
-  on('addline', () => addBasic(20));
-  on('addtext', addText);
+  on('addrect', () => armTool('shape', 1, 'a rectangle'));
+  on('addellipse', () => armTool('shape', 3, 'an ellipse'));
+  on('addline', () => armTool('line', 20));
+  on('addtext', () => armTool('text'));
+  on('toolcancel', () => { cancelTool(); view.focus({ preventScroll: true }); });
+  onChange('arrows', setArrows);
   // Page
   on('addpage', addPage);
   on('duppage', duplicatePage);
@@ -4299,6 +4729,7 @@
     else if (e.key === 'Home' && ctrl) { e.preventDefault(); goTo(0); }
     else if (e.key === 'End' && ctrl && doc) { e.preventDefault(); goTo(doc.pages.length - 1); }
     else if (e.key === 'Escape') {
+      if (cancelTool()) return;
       if (cropMode) setCropMode(false);
       else if (cellSel) { cellSel = null; showSel(); updateButtons(); syncToolbar(); }
       else if (sel) select(0, null);
@@ -4345,7 +4776,11 @@
 
   window.OpenPubApp = {
     reload: load,
-    drag: (v) => document.body.classList.toggle('drag', !!v),
+    drag: (v) => {
+      document.body.classList.toggle('drag', !!v);
+      document.body.classList.toggle('dragpics', v === 2 && !!doc);
+    },
+    picturesAdded,
     error: (msg) => showNotes([msg]),
     note: (msg) => showNotes([msg], 6000),
     saved: (name, path) => {
@@ -4391,6 +4826,7 @@
       replacePicture, setCropMode, cropTo, setCropSide, copySel, pasteClip, handlePaste, setMasterMode, showTab, syncToolbar,
       quiet: (v) => { quiet = !!v; }, toLocal, gridHit, rowEdges,
       clean: () => setDirty(false),
+      armTool, cancelTool, tool: () => tool, snapTargets, snap1, showCtx, hideCtx, openSwatches, hideSwatches, setArrows, picturesAdded,
       autosaveNow, docJsonLive, checkUnsaved, setUnsavedSince: (t) => { unsavedSince = t; },
       editWordArt, endWordArt, fitBoxToText, shrinkTextToFit, overflowing, openPick, closePick, applyPick,
       pickRows: () => pick.rows.map((d) => d.dataset.v), systemFonts: () => systemFonts, loadSystemFonts,

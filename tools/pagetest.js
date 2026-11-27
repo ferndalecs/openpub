@@ -29,9 +29,16 @@ const near = (a, b) => Math.abs(a - b) < 0.6;
   if (window.PAGETEST_STAY === 'gallery') return;
   const n0 = shapes().length;
   cells.find((b) => b.title === '5-point star').click();
+  await wait(100);
+  check('choosing one picks it up to draw, and closes the gallery', T.tool() && T.tool().type === 12 && $('shapepop').hidden);
+  // a click on the page (in view) puts it there
+  const sh = T.sheets()[page].el, vr = document.getElementById('view').getBoundingClientRect(), sr = sh.getBoundingClientRect();
+  const cx = Math.max(sr.left + 40, vr.left + vr.width / 2), cy = Math.max(sr.top + 40, vr.top + vr.height / 2);
+  const ev = (type, target) => target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, button: 0, clientX: cx, clientY: cy }));
+  ev('pointerdown', sh);
+  ev('pointerup', document.getElementById('pages'));
   await wait(300);
-  check('choosing one adds that shape, selected', shapes().length === n0 + 1 && last().shape_type === 12 && T.state().sel.shape === last(), last().shape_type);
-  check('and closes the gallery', $('shapepop').hidden);
+  check('a click on the page adds that shape, selected', shapes().length === n0 + 1 && last().shape_type === 12 && T.state().sel.shape === last(), last().shape_type);
   const star = last();
   const drawn = T.shapeEl(page, star);
   check('it is drawn as a star (not a box)', drawn && /[LlCc]/.test(drawn.querySelector('svg path').getAttribute('d')) && drawn.querySelector('svg path').getAttribute('d').split(/[Ll ]/).length > 8);

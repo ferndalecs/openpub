@@ -115,7 +115,33 @@ enum UserEvent {
     OpenLink(String),
     /// Save a picture of a page (PNG data from the page) where the person chooses.
     SavePng { data: Vec<u8>, name: String, forced: Option<PathBuf> },
-    Drag(bool),
+    /// Files are being dragged over the window: 0 none, 1 to open, 2 pictures to add.
+    Drag(u8),
+    /// Picture files to add (dropped on the window), at a point of the window (physical pixels).
+    AddPictures { paths: Vec<PathBuf>, at: Option<(f64, f64)> },
+    /// A picture pasted in the page (the bytes of the file).
+    PastePicture(Vec<u8>),
+    /// Pictures read for adding (and the ones that couldn't be).
+    PicturesReady { items: Vec<(Image, u32, u32)>, errors: Vec<String>, at: Option<(f64, f64)> },
+}
+
+/// Picture files OpenPub can add.
+fn is_picture(p: &Path) -> bool {
+    let e = p.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    matches!(e.as_str(), "png" | "jpg" | "jpeg" | "jfif" | "gif" | "bmp" | "tif" | "tiff")
+}
+/// Files dropped on the window: pictures to add when they are all pictures, else a file to open.
+fn dropped(paths: &[PathBuf]) -> u8 {
+    if !paths.is_empty() && paths.iter().all(|p| is_picture(p)) { 2 } else { 1 }
+}
+
+/// Reads picture bytes for adding (pasted pictures), guarded like files.
+fn prepare_picture(bytes: Vec<u8>, what: &str) -> Result<(Image, u32, u32), String> {
+    let (img, w, h) = std::panic::catch_unwind(|| openpub_core::images::prepare(bytes)).unwrap_or_else(|_| Err(format!("{what} is damaged or isn't a picture OpenPub can read.")))?;
+    if w == 0 || h == 0 || w > 30000 || h > 30000 {
+        return Err(format!("{what} is too large to add ({w} × {h} pixels)."));
+    }
+    Ok((img, w, h))
 }
 
 /// What the page may load: only its own files and the open document's pictures. Nothing from the
@@ -298,16 +324,19 @@ fn main() -> wry::Result<()> {
         .with_ipc_handler(move |req: Request<String>| on_message(req.body(), &ipc_state, &ipc_proxy, &ipc_ready))
         .with_drag_drop_handler(move |e| {
             match e {
-                DragDropEvent::Enter { .. } => {
-                    let _ = drop_proxy.send_event(UserEvent::Drag(true));
+                DragDropEvent::Enter { paths, .. } => {
+                    let _ = drop_proxy.send_event(UserEvent::Drag(dropped(&paths)));
                 }
                 DragDropEvent::Leave => {
-                    let _ = drop_proxy.send_event(UserEvent::Drag(false));
+                    let _ = drop_proxy.send_event(UserEvent::Drag(0));
                 }
-                DragDropEvent::Drop { paths, .. } => {
-                    let _ = drop_proxy.send_event(UserEvent::Drag(false));
-                    if let Some(p) = paths.into_iter().next() {
-                        let _ = drop_proxy.send_event(UserEvent::Open { path: p, asked: false });
+                DragDropEvent::Drop { paths, position } => {
+                    let _ = drop_proxy.send_event(UserEvent::Drag(0));
+                    // pictures are added where they're dropped; a publication is opened
+                    if dropped(&paths) == 2 {
+                        let _ = drop_proxy.send_event(UserEvent::AddPictures { paths, at: Some((position.0 as f64, position.1 as f64)) });
+                    } else if let Some(p) = paths.iter().find(|p| !is_picture(p)).or(paths.first()) {
+                        let _ = drop_proxy.send_event(UserEvent::Open { path: p.clone(), asked: false });
                     }
                 }
                 _ => {}
@@ -699,8 +728,65 @@ fn main() -> wry::Result<()> {
                     Err(e) => error(&webview, &format!("Couldn't save the picture: {e}")),
                 }
             }
-            Event::UserEvent(UserEvent::Drag(on)) => {
-                let _ = webview.evaluate_script(&format!("window.OpenPubApp && OpenPubApp.drag({on})"));
+            Event::UserEvent(UserEvent::Drag(kind)) => {
+                let _ = webview.evaluate_script(&format!("window.OpenPubApp && OpenPubApp.drag({kind})"));
+            }
+            Event::UserEvent(UserEvent::AddPictures { paths, at }) => {
+                if state.lock().unwrap().json.is_none() {
+                    note(&webview, "Open a publication or start a new one first, then drop the pictures on a page.");
+                    return;
+                }
+                let proxy = proxy.clone();
+                std::thread::spawn(move || {
+                    let (mut items, mut errors) = (Vec::new(), Vec::new());
+                    for p in paths.iter().take(20) {
+                        match read_picture(p) {
+                            Ok(x) => items.push(x),
+                            Err(e) => errors.push(e),
+                        }
+                    }
+                    if paths.len() > 20 {
+                        errors.push(format!("Only 20 pictures can be added at once ({} were dropped).", paths.len()));
+                    }
+                    let _ = proxy.send_event(UserEvent::PicturesReady { items, errors, at });
+                });
+            }
+            Event::UserEvent(UserEvent::PastePicture(bytes)) => {
+                if state.lock().unwrap().json.is_none() {
+                    return;
+                }
+                let proxy = proxy.clone();
+                std::thread::spawn(move || {
+                    let (items, errors) = match prepare_picture(bytes, "The pasted picture") {
+                        Ok(x) => (vec![x], Vec::new()),
+                        Err(e) => (Vec::new(), vec![e]),
+                    };
+                    let _ = proxy.send_event(UserEvent::PicturesReady { items, errors, at: None });
+                });
+            }
+            Event::UserEvent(UserEvent::PicturesReady { items, errors, at }) => {
+                if !errors.is_empty() {
+                    error(&webview, &errors.join("\n"));
+                }
+                if items.is_empty() {
+                    return;
+                }
+                let list: Vec<serde_json::Value> = {
+                    let mut st = state.lock().unwrap();
+                    if st.json.is_none() {
+                        return;
+                    }
+                    items
+                        .into_iter()
+                        .map(|(img, w, h)| {
+                            let mime = img.mime.clone();
+                            st.images.push(img);
+                            serde_json::json!({ "index": st.images.len() - 1, "w": w, "h": h, "mime": mime })
+                        })
+                        .collect()
+                };
+                let at = at.map(|(x, y)| serde_json::json!([x, y])).unwrap_or(serde_json::Value::Null);
+                let _ = webview.evaluate_script(&format!("window.OpenPubApp && OpenPubApp.picturesAdded({}, {at})", serde_json::Value::Array(list)));
             }
             _ => {}
         }
@@ -788,6 +874,26 @@ fn on_message(body: &str, state: &Mutex<State>, proxy: &EventLoopProxy<UserEvent
             UserEvent::Ready
         }
         Some("autosave") => UserEvent::Autosave { doc: doc() },
+        Some("pastePicture") => {
+            use base64::Engine;
+            let data = msg["data"].as_str().unwrap_or("");
+            // (50 MB of picture at most)
+            if data.len() > 70 * 1024 * 1024 {
+                let _ = proxy.send_event(UserEvent::PicturesReady { items: Vec::new(), errors: vec!["The pasted picture is too large to add (the limit is 50 MB).".into()], at: None });
+                return;
+            }
+            let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data) else { return };
+            UserEvent::PastePicture(bytes)
+        }
+        // test aid: picture files added as if dropped at a point of the window
+        Some("addPictureFiles") if cfg!(debug_assertions) => {
+            let paths: Vec<PathBuf> = msg["paths"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(PathBuf::from)).collect()).unwrap_or_default();
+            let at = match (msg["x"].as_f64(), msg["y"].as_f64()) {
+                (Some(x), Some(y)) => Some((x, y)),
+                _ => None,
+            };
+            UserEvent::AddPictures { paths, at }
+        }
         Some("autosaveTest") if cfg!(debug_assertions) => {
             state.lock().unwrap().autosave_test = true;
             return;

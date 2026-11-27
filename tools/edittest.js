@@ -31,6 +31,8 @@ const centre = (el) => { const r = rect(el); return { x: r.left + r.width / 2, y
 const pe = (target, type, x, y, opts = {}) => target.dispatchEvent(new PointerEvent(type, Object.assign({ bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: 1, pointerId: 1, isPrimary: true }, opts)));
 const click = (el, opts = {}, at) => { const c = at || centre(el); pe(el, 'pointerdown', c.x, c.y, opts); pe(pagesEl, 'pointerup', c.x, c.y, opts); };
 function drag(target, from, to, opts = {}, steps = 4) {
+  // (Alt: the shapes go exactly where dragged, without lining up with the page or other shapes)
+  opts = Object.assign({ altKey: true }, opts);
   pe(target, 'pointerdown', from.x, from.y, opts);
   for (let i = 1; i <= steps; i++) pe(pagesEl, 'pointermove', from.x + (to.x - from.x) * i / steps, from.y + (to.y - from.y) * i / steps, opts);
   pe(pagesEl, 'pointerup', to.x, to.y, opts);

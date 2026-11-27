@@ -241,11 +241,11 @@
           </div>
           <div class="col">
             <div class="r">
-              <button id="addrect" class="ib" title="Add a rectangle"><svg class="i"><use href="#i-rect"/></svg>Rectangle</button>
-              <button id="addellipse" class="ib" title="Add an ellipse"><svg class="i"><use href="#i-ellipse"/></svg>Ellipse</button>
+              <button id="addrect" class="ib" title="Draw a rectangle: click on the page, or drag to choose its size"><svg class="i"><use href="#i-rect"/></svg>Rectangle</button>
+              <button id="addellipse" class="ib" title="Draw an ellipse: click on the page, or drag to choose its size"><svg class="i"><use href="#i-ellipse"/></svg>Ellipse</button>
             </div>
             <div class="r">
-              <button id="addline" class="ib" title="Add a line"><svg class="i"><use href="#i-line"/></svg>Line</button>
+              <button id="addline" class="ib" title="Draw a line: drag on the page from one end to the other"><svg class="i"><use href="#i-line"/></svg>Line</button>
             </div>
           </div>
         </div>
@@ -253,7 +253,7 @@
       </div>
       <div class="grp" role="group" aria-label="Text">
         <div class="gb">
-          <button id="addtext" class="big" title="Add a text box"><svg class="i"><use href="#i-text"/></svg>Text box</button>
+          <button id="addtext" class="big" title="Draw a text box: click on the page, or drag to choose its size"><svg class="i"><use href="#i-text"/></svg>Text box</button>
           <button id="addwa" class="big" title="Add WordArt: decorative text stretched to its box"><svg class="i"><use href="#i-wa"/></svg>WordArt</button>
         </div>
         <div class="gl">Text</div>
@@ -401,6 +401,12 @@
             </select>
           </div>
           <div class="r">
+            <select id="arrows" title="Arrowheads on a line" aria-label="Arrowheads">
+              <option value="none">No arrows</option>
+              <option value="end">Arrow at the end →</option>
+              <option value="start">Arrow at the start ←</option>
+              <option value="both">Arrows at both ends ↔</option>
+            </select>
             <select id="dash" title="Outline dash style" aria-label="Outline dash style">
               <option value="0">──── Solid</option>
               <option value="5">┈┈┈┈ Round dot</option>
@@ -742,6 +748,9 @@
   </div>
 </div>
 <div id="notes" hidden role="status"></div>
+<div id="toolhint" hidden role="status"><span></span><button id="toolcancel">Cancel</button></div>
+<div id="ctxmenu" class="ctxmenu" hidden role="menu"></div>
+<div id="swatchpop" class="pickpop swatchpop" hidden role="dialog" aria-label="Colours"></div>
 <div id="savebar" hidden role="alert"><span>This publication hasn't been saved yet.</span><button id="savebarsave" class="primary">Save it now</button><button id="savebarx" title="Remind me later" aria-label="Remind me later">×</button></div>
 <script src="hyphen.js"></script>
 <script src="render.js"></script>

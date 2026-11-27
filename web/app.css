@@ -256,8 +256,35 @@ main { flex: 1; display: flex; min-height: 0; }
 .selbox .ghost img { width: 100%; height: 100%; display: block; }
 .selbox .cell { position: absolute; background: rgba(26,115,232,.18); outline: 1.5px solid rgba(26,115,232,.75); outline-offset: -1px; pointer-events: none; }
 .selbox .guide { position: absolute; background: var(--sel); pointer-events: none; }
+/* drawing a new box with the mouse */
+body.drawing .sheet, body.drawing .sheet * { cursor: crosshair !important; }
+.band.draw { border: 1.5px dashed var(--accent); background: rgba(15,110,95,.08); }
+#toolhint { position: fixed; left: 50%; top: 150px; transform: translateX(-50%); z-index: 55; display: flex; align-items: center; gap: 12px; background: #1f5d53; color: #fff; padding: 7px 8px 7px 14px; border-radius: 8px; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,.25); }
+#toolhint[hidden] { display: none; }
+#toolhint button { height: 26px; border-radius: 5px; border: 1px solid rgba(255,255,255,.6); background: transparent; color: #fff; font: inherit; padding: 0 10px; cursor: pointer; }
+/* guides shown while moving, sizing or drawing: lined up with the page or another object */
+.snapline { position: absolute; z-index: 7; pointer-events: none; background: #ff2fa8; box-shadow: 0 0 0 1px rgba(255,255,255,.6); }
+.snapline.v { top: 0; bottom: 0; width: 2px; margin-left: -1px; }
+.snapline.h { left: 0; right: 0; height: 2px; margin-top: -1px; }
+/* the right-click menu */
+.ctxmenu { position: fixed; z-index: 70; min-width: 210px; background: #fff; border: 1px solid var(--bar-line); border-radius: 7px; box-shadow: 0 6px 20px rgba(0,0,0,.22); padding: 4px; font-size: 13px; }
+.ctxmenu[hidden] { display: none; }
+.ctxmenu button { display: flex; width: 100%; justify-content: space-between; gap: 24px; align-items: center; height: 30px; padding: 0 10px; border: 0; border-radius: 4px; background: none; font: inherit; color: var(--ink); text-align: left; cursor: default; }
+.ctxmenu button:hover:not(:disabled), .ctxmenu button:focus-visible { background: var(--accent-soft); outline: none; }
+.ctxmenu button:disabled { color: #aaa; }
+.ctxmenu kbd { color: var(--muted); font: inherit; font-size: 12px; }
+.ctxmenu hr { border: 0; border-top: 1px solid var(--bar-line); margin: 4px 2px; }
+/* colour swatches */
+.swatchpop { padding: 8px; width: 252px; }
+.swatchpop h4 { font-size: 11.5px; font-weight: 600; color: var(--muted); margin: 6px 0 4px; }
+.swatchpop h4:first-child { margin-top: 0; }
+.swatchpop .sw { display: grid; grid-template-columns: repeat(10, 22px); gap: 2px; }
+.swatchpop .sw button { width: 22px; height: 22px; padding: 0; border: 1px solid rgba(0,0,0,.18); border-radius: 3px; cursor: pointer; }
+.swatchpop .sw button:hover, .swatchpop .sw button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.swatchpop .more { margin-top: 8px; width: 100%; height: 28px; border: 1px solid var(--bar-line); border-radius: 5px; background: #fff; font: inherit; cursor: pointer; }
 .band { position: absolute; border: 1px solid var(--sel); background: rgba(26,115,232,.1); pointer-events: none; z-index: 6; }
 
+body.drag.dragpics #view::after { content: "Drop to add the pictures here"; }
 body.drag #view::after { content: "Drop to open"; position: absolute; inset: 12px; border: 2px dashed #fff; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 20px; background: rgba(15,110,95,.35); pointer-events: none; }
 
 #savebar { position: fixed; left: 50%; bottom: 44px; transform: translateX(-50%); z-index: 55; display: flex; align-items: center; gap: 10px; background: #fff7e0; color: #4a3b00; border: 1px solid #e2c766; border-radius: 8px; padding: 7px 8px 7px 14px; box-shadow: 0 4px 16px rgba(0,0,0,.18); font-size: 13px; }
@@ -322,7 +349,7 @@ body.drag #file::after { content: "Drop to open"; position: absolute; inset: 12p
 @media print {
   html, body { height: auto; }
   body { display: block; overflow: visible; background: #fff; }
-  #bar, #thumbs, #notes, #savebar, #file, #status, #findbar, #masterbar, .selbox, .band, .ovf, .waedit, .pickpop { display: none !important; }
+  #bar, #thumbs, #notes, #savebar, #toolhint, #ctxmenu, #swatchpop, .snapline, #file, #status, #findbar, #masterbar, .selbox, .band, .ovf, .waedit, .pickpop { display: none !important; }
   .sheet .op-flow.op-blank::after { display: none !important; }
   main, #view { display: block; overflow: visible; }
   #pages { display: block; padding: 0; }

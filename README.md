@@ -48,7 +48,11 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
 * **Edit** (ribbon with Home / Insert / Page / Shape / Table / Picture tabs):
   * Shapes: select (click, Shift+click or drag a box for several, Ctrl+A for all), move, resize,
     rotate (handle, exact angle, ±90°), nudge with the arrow keys, duplicate, delete, cut/copy/
-    paste, group/ungroup, bring to front/send to back, exact position and size in cm.
+    paste, group/ungroup, bring to front/send to back, exact position and size in cm. Text boxes,
+    shapes and lines are drawn with the mouse (choose the tool, then click on the page or drag);
+    while moving, sizing or drawing, edges and centres line up with the page edges, centre and
+    margins and with other objects, shown by pink guides (Alt to place freely). A right-click
+    menu has the common commands.
   * Text: double-click to type, or select a box and just start typing (also in table cells and
     linked text boxes, where the text flows on through the chain); spelling checked as you type;
     font (a list of the computer's fonts, each shown in its own lettering, with the
@@ -62,9 +66,11 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
   * Shapes and pictures: a gallery of about 60 shapes (basic shapes, block arrows, flowchart,
     stars and banners, callouts); WordArt (words typed on the page - double-click it - font,
     straight/arched/wavy/slanted); fill colour,
-    two-colour gradient and transparency, outline colour/width/dash, shadow; align objects with
+    two-colour gradient and transparency, outline colour/width/dash, arrowheads on lines,
+    shadow; colours from a palette with the publication's own and recently used colours; align objects with
     each other or the page, flip; a link to a web or e-mail address (Ctrl+click opens it, after
-    asking); replace a picture, crop it with handles or by percentages, brightness, contrast,
+    asking); add pictures with Insert > Picture, by dropping picture files on the page or by
+    pasting (a screenshot, a picture copied from a web page); replace a picture, crop it with handles or by percentages, brightness, contrast,
     grayscale, show it inside a shape.
   * Tables: insert; add/delete rows and columns, merge/split cells, cell fill, vertical
     alignment and borders; header-row and banded-row colours.
@@ -167,7 +173,9 @@ setup, `tools/extratest.js` for WordArt, effects, links, table styles, picture a
 the page picture and the designs, `tools/wraptest.js` for editing text that flows round a
 shape, `tools/safetytest.js` for not losing unsaved work, `tools/linktest.js` for linked text boxes
 and text positions, `tools/texttest.js` for the font and size lists, WordArt typed on the page and
-text that doesn't fit). `tools/rectest.ps1` checks recovery copies: a window is killed mid-work
+text that doesn't fit). `tools/drawtest.js` covers drawing with the mouse, snapping,
+the right-click menu, colour swatches, arrowheads and pictures by paste and drop.
+`tools/rectest.ps1` checks recovery copies: a window is killed mid-work
 and the next one must offer the changes back.; results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the
 feature samples to Word, opens each in Word and compares them with Publisher's pages;
 `tools/docx-open.ps1` checks that Word accepts an exported document and lists its links.
