@@ -39,6 +39,7 @@ const LONG = 'Our class trip to the science museum was the best day of the year.
     // ---- the font list: type part of a name, pick it
     const font = $('font');
     font.focus();
+    font.click();
     await wait(300);
     check('clicking the font box opens the list', !$('pickpop').hidden && T.pickRows().length > 20, T.pickRows().length);
     font.value = 'comic';
@@ -62,6 +63,7 @@ const LONG = 'Our class trip to the science museum was the best day of the year.
     T.select(page, box);
     const size = $('size');
     size.focus();
+    size.click();
     await wait(200);
     check('the size list offers common sizes', T.pickRows().includes('12') && T.pickRows().includes('72'), T.pickRows());
     size.value = '14,5';
@@ -125,7 +127,7 @@ const LONG = 'Our class trip to the science museum was the best day of the year.
     await wait(300);
     ta = document.querySelector('.waedit');
     check('double-clicking WordArt opens its words', !!ta && ta.value === 'Your text');
-    ta.blur();
+    document.getElementById('view').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 1 }));
     await wait(300);
     check('clicking away finishes', !document.querySelector('.waedit'));
     // typing with WordArt selected replaces its words

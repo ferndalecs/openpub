@@ -138,7 +138,7 @@ const change = (id, v) => { $(id).value = v; $(id).dispatchEvent(new Event('chan
   $('filebtn').click();
   document.querySelector('#filenav [data-pane="new"]').click();
   const cards = [...$('tplcards').children];
-  check('New offers ready-made designs', cards.length === 4 && cards.every((c) => c.querySelector('b').textContent), cards.length);
+  check('New offers ready-made designs', cards.length >= 4 && cards.every((c) => c.querySelector('b').textContent), cards.length);
   if (window.EXTRATEST_STAY === 'new') return;
   const st = await (await fetch('start.json')).json();
   check('the first-run question is not asked while testing', st.askAssoc === false);

@@ -1758,7 +1758,7 @@
     editShapes((s) => { if (s[key]) delete s[key]; else s[key] = true; }, true);
   }
 
-  const PAGE_SIZES = { a4: [210 * 72 / 25.4, 297 * 72 / 25.4], a5: [148 * 72 / 25.4, 210 * 72 / 25.4], a3: [297 * 72 / 25.4, 420 * 72 / 25.4], letter: [612, 792], legal: [612, 1008], tabloid: [792, 1224] };
+  const PAGE_SIZES = { a4: [210 * 72 / 25.4, 297 * 72 / 25.4], a5: [148 * 72 / 25.4, 210 * 72 / 25.4], a3: [297 * 72 / 25.4, 420 * 72 / 25.4], letter: [612, 792], legal: [612, 1008], tabloid: [792, 1224], a2: [420 * 72 / 25.4, 594 * 72 / 25.4], a6: [105 * 72 / 25.4, 148 * 72 / 25.4], dl: [99 * 72 / 25.4, 210 * 72 / 25.4], bizcard: [55 * 72 / 25.4, 85 * 72 / 25.4] };
   /** Changes the size of every page; objects stay where they are, measured from the top left. */
   function setPageSize(w, h) {
     if (!doc || !(w >= 28 && h >= 28) || (Math.abs(w - doc.width) < 0.01 && Math.abs(h - doc.height) < 0.01)) { syncPageUi(); return; }
@@ -1937,6 +1937,12 @@
       loadSystemFonts().then(() => { if (document.activeElement === input) openPick(input, ''); });
     });
     input.addEventListener('mousedown', () => { if (document.activeElement === input && pickEl.hidden) openPick(input, ''); });
+    input.addEventListener('click', () => {
+      if (!pickEl.hidden && pick.input === input) return;
+      pick.start = input.value;
+      pick.applied = null;
+      loadSystemFonts().then(() => openPick(input, ''));
+    });
     input.addEventListener('input', () => { if (pickKind(input) === 'font') openPick(input, input.value); });
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
@@ -2018,6 +2024,14 @@
       }
     });
     ta.addEventListener('blur', () => setTimeout(() => { if (waEdit === ed && document.activeElement !== ta) endWordArt(); }, 0));
+    // (and a click anywhere else, whether or not the window had the keyboard)
+    const away = (e) => {
+      if (waEdit !== ed) { document.removeEventListener('pointerdown', away, true); return; }
+      if (e.target === ta) return;
+      document.removeEventListener('pointerdown', away, true);
+      endWordArt();
+    };
+    document.addEventListener('pointerdown', away, true);
     ta.focus({ preventScroll: true });
     if (typed != null) {
       ta.value = typed;
@@ -3960,7 +3974,7 @@
     closeMenus();
     if (!fileOpen()) fileReturn = document.activeElement;
     for (const b of document.querySelectorAll('#filenav .needs-doc')) b.disabled = !doc;
-    if (!doc && !['new', 'open', 'options'].includes(pane)) pane = 'open';
+    if (!doc && !['new', 'open', 'options', 'help'].includes(pane)) pane = 'open';
     $('fileback').hidden = !doc;
     for (const sec of document.querySelectorAll('#filebody > section')) sec.hidden = sec.id !== 'fp-' + pane;
     let cur = null;
@@ -3971,7 +3985,7 @@
     }
     if (pane === 'open') fillRecent();
     if (pane === 'new') fillNew();
-    if (pane === 'open' && !doc) askAssoc();
+    if ((pane === 'open' || pane === 'new') && !doc) askAssoc(); else $('assocask').hidden = true;
     if (pane === 'info') fillInfo();
     $('file').hidden = false;
     $('filebody').scrollTop = 0;
@@ -4028,6 +4042,10 @@
     ['A3', 'portrait · 29.7 × 42 cm', 297 * MM, 420 * MM],
     ['A3', 'landscape · 42 × 29.7 cm', 420 * MM, 297 * MM],
     ['Letter', 'portrait · 8.5 × 11 in', 612, 792],
+    ['A2 poster', 'portrait · 42 × 59.4 cm', 420 * MM, 594 * MM],
+    ['A6 postcard', 'landscape · 14.8 × 10.5 cm', 148 * MM, 105 * MM],
+    ['DL leaflet', 'portrait · 9.9 × 21 cm', 99 * MM, 210 * MM],
+    ['Business card', 'landscape · 8.5 × 5.5 cm', 85 * MM, 55 * MM],
   ];
   function fillNew() {
     const box = $('newcards');
@@ -4037,7 +4055,7 @@
       const card = mk('button', 'card');
       const sheet = mk('div', 'sheetbox');
       const mini = mk('div', 'mini');
-      const k = 118 / (420 * MM); // A3's long side fills the box
+      const k = 118 / Math.max(420 * MM, w, h); // A3's long side fills the box (larger sizes are scaled down)
       mini.style.width = Math.round(w * k) + 'px';
       mini.style.height = Math.round(h * k) + 'px';
       sheet.appendChild(mini);
@@ -4047,6 +4065,16 @@
       card.addEventListener('click', () => send({ cmd: 'new', width: w, height: h }));
       box.appendChild(card);
     }
+  }
+
+  /** With nothing open: the Open page, or New for someone who hasn't opened anything yet. */
+  async function startScreen() {
+    let pane = 'open';
+    try {
+      const list = await (await fetch('recent.json?v=' + Date.now())).json();
+      if (Array.isArray(list) && !list.length) pane = 'new';
+    } catch (e) { /* the Open page */ }
+    if (!doc) showFile(pane);
   }
 
   /** The first-run question: shown once, on the start screen, when .pub files open elsewhere. */
@@ -4066,6 +4094,9 @@
     newsletter: { name: 'Newsletter', what: 'A4 portrait · 2 pages', w: A4W, h: A4H, colors: ['#1f4e79', '#e6eef5', '#ffffff'] },
     certificate: { name: 'Certificate', what: 'A4 landscape', w: A4H, h: A4W, colors: ['#8a6d1d', '#fbf6e6', '#ffffff'] },
     poster: { name: 'Notice or poster', what: 'A4 portrait', w: A4W, h: A4H, colors: ['#b3261e', '#ffffff', '#ffffff'] },
+    leaflet: { name: 'Folded leaflet', what: 'A4 landscape · 2 pages · folds in three', w: A4H, h: A4W, colors: ['#0f6e5f', '#e3efec', '#ffffff'] },
+    card: { name: 'Greeting card', what: 'A4 landscape · 2 pages · folds in half', w: A4H, h: A4W, colors: ['#c2185b', '#fdd835', '#fff3f7'] },
+    cover: { name: 'Project cover', what: 'A4 portrait', w: A4W, h: A4H, colors: ['#3949ab', '#e8eaf6', '#ffffff'] },
   };
   function templatePages(id, W, H) {
     let seq = 1000000;
@@ -4139,6 +4170,66 @@
         Object.assign(rect(W / 2 - 38, H - 150, 76, 76, c[0], null, 59), {}),
       ]];
     }
+
+    if (id === 'leaflet') {
+      // folded in three: page 1 the outside (inside flap | back | front cover), page 2 the inside
+      const c = TEMPLATES.leaflet.colors;
+      const P = W / 3, g = 22;
+      const box = (x, y, w, h, fill, lines) => Object.assign(rect(x, y, w, h, fill, null, 2), { text: { margins: [10, 8, 10, 8], valign: 'middle', columns: 1, column_gap: 0, story: 0, paras: lines } });
+      const pic = (x, y, w, h) => box(x, y, w, h, c[1], [para('Picture', { size: 12, color: '#6d7f90', align: 'center', after: 0 })]);
+      const panel = (i, head, body) => [
+        text(i * P + g, 40, P - 2 * g, 34, head, { size: 18, bold: true, color: c[0], font: 'Georgia' }),
+        text(i * P + g, 80, P - 2 * g, H - 130, body.map((t) => [t, typeof t === 'string' && t.startsWith('•') ? {} : {}]), { size: 11, spacing: 1.15 }),
+      ];
+      return [[
+        ...panel(0, 'About us', ['Say who you are and what this leaflet is about.', 'This panel is the flap that folds in: people see it when they open the front.']),
+        text(P + g, H - 210, P - 2 * g, 30, 'Contact us', { size: 16, bold: true, color: c[0], align: 'center' }),
+        text(P + g, H - 176, P - 2 * g, 110, [['Address line 1', {}], ['Address line 2', {}], ['01234 567890', {}], ['www.example.org', {}]], { size: 11, align: 'center', after: 2 }),
+        rect(2 * P, 0, P, H, c[0]),
+        text(2 * P + g, 60, P - 2 * g, 120, [['Leaflet', {}], ['title', {}]], { size: 34, bold: true, color: '#ffffff', font: 'Georgia', after: 0, spacing: 1 }),
+        text(2 * P + g, 190, P - 2 * g, 40, 'A line about what is inside', { size: 13, color: '#e6f0ef', italic: true }),
+        pic(2 * P + g, 250, P - 2 * g, 170),
+      ], [
+        ...panel(0, 'First heading', ['Write the first part of your information here.', 'Use short paragraphs and clear headings so it is easy to read.']),
+        pic(g, H - 200, P - 2 * g, 150),
+        ...panel(1, 'Second heading', ['• A key point', '• Another key point', '• One more', 'Add a sentence or two to explain them.']),
+        ...panel(2, 'Third heading', ['Finish with what you want readers to do next, and how to find out more.']),
+        box(2 * P + g, H - 150, P - 2 * g, 100, c[1], [para('Remember!', { size: 15, bold: true, color: c[0], align: 'center', after: 2 }), para('Something important', { size: 12, align: 'center', after: 0 })]),
+      ]];
+    }
+    if (id === 'card') {
+      // folded in half: page 1 the outside (back | front), page 2 the inside (left | right)
+      const c = TEMPLATES.card.colors;
+      const half = W / 2;
+      return [[
+        text(40, H - 80, half - 80, 24, 'Made by ...', { size: 11, color: '#6d685f', align: 'center', italic: true }),
+        rect(half, 0, half, H, c[2]),
+        rect(half + 18, 18, half - 36, H - 36, null, { color: c[0], width: 3 }, 2),
+        Object.assign(rect(half + half / 2 - 60, 60, 120, 120, c[1], null, 12), {}),
+        text(half + 30, 200, half - 60, 150, [['Happy', {}], ['Birthday!', {}]], { size: 44, bold: true, color: c[0], font: 'Georgia', align: 'center', after: 0, spacing: 1 }),
+        text(half + 30, H - 110, half - 60, 40, 'to someone special', { size: 16, italic: true, align: 'center', color: '#6d685f' }),
+      ], [
+        Object.assign(rect(half / 2 - 50, H / 2 - 50, 100, 100, '#f8bbd0', null, 74), {}),
+        text(half + 40, 70, half - 80, H - 140, [['Dear ...,', { after: 18 }], ['Write your message here.', { after: 18 }], ['Best wishes,', { after: 4 }], ['...', {}]], { size: 20, font: 'Georgia', color: '#23211d' }),
+      ]];
+    }
+    if (id === 'cover') {
+      const c = TEMPLATES.cover.colors;
+      const pic = Object.assign(rect(m + 30, 300, W - 2 * m - 30, 230, c[1], { color: '#b7c7d6', width: 0.75 }), { text: { margins: [4, 4, 4, 4], valign: 'middle', columns: 1, column_gap: 0, story: 0, paras: [para('Picture', { size: 14, color: '#6d7f90', align: 'center', after: 0 })] } });
+      const line = (y, label) => [text(m + 30, y, 110, 26, label, { size: 14, bold: true, color: c[0] }), rule(m + 140, y + 22, W - 2 * m - 140, '#8a867d', 0.75)];
+      return [[
+        rect(0, 0, 26, H, c[0]),
+        text(m + 30, 90, W - 2 * m - 30, 30, 'SUBJECT', { size: 14, bold: true, color: c[0] }),
+        text(m + 30, 124, W - 2 * m - 30, 120, 'Project title', { size: 44, bold: true, font: 'Georgia', color: '#23211d', spacing: 1 }),
+        text(m + 30, 230, W - 2 * m - 30, 40, 'A short line about the project', { size: 16, italic: true, color: '#6d685f' }),
+        pic,
+        ...line(580, 'Name'),
+        ...line(630, 'Class'),
+        ...line(680, 'Teacher'),
+        ...line(730, 'Date'),
+        text(m + 30, H - 50, W - 2 * m - 30, 24, 'School name', { size: 11, color: '#6d685f' }),
+      ]];
+    }
     const c = TEMPLATES.poster.colors;
     return [[
       rect(0, 0, W, 210, c[0]),
@@ -4170,6 +4261,8 @@
       const band = mk('i'); band.style.cssText = `left:0;top:0;width:100%;height:${id === 'certificate' ? 100 : 34}%;background:${id === 'certificate' ? t.colors[1] : t.colors[0]}`;
       mini.appendChild(band);
       for (let n = 0; n < 4; n++) { const ln = mk('i'); ln.style.cssText = `left:14%;top:${46 + n * 11}%;width:${72 - n * 9}%;height:3%;background:${id === 'certificate' ? t.colors[0] : '#c9c5bc'}`; mini.appendChild(ln); }
+      const folds = id === 'leaflet' ? [33.3, 66.6] : id === 'card' ? [50] : [];
+      for (const f of folds) { const ln = mk('i'); ln.style.cssText = `left:${f}%;top:0;width:0;height:100%;border-left:1px dashed rgba(0,0,0,.35)`; mini.appendChild(ln); }
       sheet.appendChild(mini);
       card.appendChild(sheet);
       card.appendChild(mk('b', '', t.name));
@@ -4321,7 +4414,7 @@
       build();
       buildThumbs();
       updateButtons();
-      showFile('open'); // the start screen
+      startScreen();
       return;
     }
     doc = data;
@@ -4443,6 +4536,7 @@
   on('assoc', () => send({ cmd: 'associate' }));
   on('filebtn', () => showFile(doc ? 'info' : 'open'));
   on('fileback', hideFile);
+  on('helpbtn', () => showFile('help'));
   for (const b of document.querySelectorAll('#filenav [data-pane]')) b.addEventListener('click', () => showFile(b.dataset.pane));
   on('undo', () => restore(undoStack, redoStack));
   on('redo', () => restore(redoStack, undoStack));
@@ -4544,6 +4638,27 @@
   // Insert
   on('inspage', addPage);
   on('tblinsert', () => { closeMenus(); addTable(num('tblrows'), num('tblcols')); });
+  // point at the size of the table, then click
+  (function tableGrid() {
+    const grid = $('tblgrid'), ROWS = 8, COLS = 10;
+    const cells = [];
+    const mark = (r, c) => {
+      for (const b of cells) b.classList.toggle('on', b.opR <= r && b.opC <= c);
+      $('tblgridlabel').textContent = r < 0 ? 'Choose the size of the table' : `${r + 1} × ${c + 1} table (rows × columns)`;
+    };
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      const b = document.createElement('button');
+      b.opR = r;
+      b.opC = c;
+      b.setAttribute('aria-label', `${r + 1} rows, ${c + 1} columns`);
+      b.addEventListener('mouseenter', () => mark(r, c));
+      b.addEventListener('focus', () => mark(r, c));
+      b.addEventListener('click', () => { closeMenus(); mark(-1, -1); addTable(r + 1, c + 1); });
+      grid.appendChild(b);
+      cells.push(b);
+    }
+    grid.addEventListener('mouseleave', () => mark(-1, -1));
+  })();
   on('addpic', insertPicture);
   on('addrect', () => armTool('shape', 1, 'a rectangle'));
   on('addellipse', () => armTool('shape', 3, 'an ellipse'));
@@ -4685,6 +4800,7 @@
   window.addEventListener('keydown', (e) => {
     const ctrl = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
+    if (e.key === 'F1') { e.preventDefault(); showFile('help'); return; }
     if (e.key === 'Escape' && document.querySelector('.pop:not([hidden])')) { closeMenus(); return; }
     if (ctrl && key === 'o') { e.preventDefault(); send({ cmd: 'open' }); return; }
     if (ctrl && key === 'n') { e.preventDefault(); showFile('new'); return; }

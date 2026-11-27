@@ -38,9 +38,13 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
 
 ## What it does
 
-* **File screen** (the File button; also the start screen): New (a blank publication in A4,
-  A5, A3 or Letter, or a ready-made flyer, newsletter, certificate or notice - Ctrl+N), Open with the list of recent files, Save, Save As, Export, Print,
-  and Info (location, pages, page size, and which of the publication's fonts are installed).
+* **File screen** (the File button; also the start screen, which opens on New for someone who
+  hasn't opened anything yet): New (a blank publication in A4, A5, A3, Letter, A2 poster, A6
+  postcard, DL leaflet or business card size, or a ready-made flyer, newsletter, certificate,
+  notice, folded leaflet, greeting card or project cover - Ctrl+N), Open with the list of recent
+  files, Save, Save As, Export, Print, Info (location, pages, page size, and which of the
+  publication's fonts are installed) and Help (how to do the common things, and the keyboard
+  shortcuts - F1 or the ? button).
 * **Status bar**: page navigation, the selected object with its position and size, the
   two-page view and a zoom slider (10% to 800%).
 * **Open** `.pub` (Publisher 2003 and later) and `.opub` files: File > Open, Ctrl+O, drag and
@@ -72,9 +76,9 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
     asking); add pictures with Insert > Picture, by dropping picture files on the page or by
     pasting (a screenshot, a picture copied from a web page); replace a picture, crop it with handles or by percentages, brightness, contrast,
     grayscale, show it inside a shape.
-  * Tables: insert; add/delete rows and columns, merge/split cells, cell fill, vertical
+  * Tables: insert (point at the size on a grid, or type it); add/delete rows and columns, merge/split cells, cell fill, vertical
     alignment and borders; header-row and banded-row colours.
-  * Pages: add, duplicate, delete, reorder (buttons or drag in the page list); page size (A4,
+  * Pages: add, duplicate, delete, reorder (buttons or drag in the page list); page size (A2, A6, DL, business card, A4,
     A5, A3, Letter, Legal, Tabloid or custom) and orientation; page background colour (a
     publication's own background colour, gradient or picture is shown); page
     border; edit the master page items (headers, footers, page numbers).
@@ -173,7 +177,8 @@ setup, `tools/extratest.js` for WordArt, effects, links, table styles, picture a
 the page picture and the designs, `tools/wraptest.js` for editing text that flows round a
 shape, `tools/safetytest.js` for not losing unsaved work, `tools/linktest.js` for linked text boxes
 and text positions, `tools/texttest.js` for the font and size lists, WordArt typed on the page and
-text that doesn't fit). `tools/drawtest.js` covers drawing with the mouse, snapping,
+text that doesn't fit). `tools/helptest.js` covers the help page, the table grid, the designs (all their text must
+fit), the page sizes and the tooltips. `tools/drawtest.js` covers drawing with the mouse, snapping,
 the right-click menu, colour swatches, arrowheads and pictures by paste and drop.
 `tools/rectest.ps1` checks recovery copies: a window is killed mid-work
 and the next one must offer the changes back.; results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the

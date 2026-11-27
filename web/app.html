@@ -97,6 +97,7 @@
     <button role="tab" id="t-picture" class="ctx" aria-controls="p-picture" aria-selected="false" tabindex="-1" hidden>Picture</button>
     <span class="grow"></span>
     <span id="docname"></span>
+    <button id="helpbtn" class="helpbtn" title="Help: how to do things, and keyboard shortcuts (F1)" aria-label="Help">?</button>
   </div>
 
   <div class="ribbon">
@@ -151,14 +152,14 @@
             <span class="split">
               <button id="num" class="tog" title="Numbering" aria-label="Numbering"><svg class="i"><use href="#i-num"/></svg></button><div class="menu"><button id="nummenu" class="drop" title="Choose a numbering style" aria-label="Choose a numbering style" aria-haspopup="true" aria-expanded="false" aria-controls="numpop">▾</button>
                 <div class="pop" id="numpop" hidden>
-                  <button data-number="0">1. 2. 3.</button>
-                  <button data-number="1">1) 2) 3)</button>
-                  <button data-number="8">(1) (2) (3)</button>
-                  <button data-number="2">a. b. c.</button>
-                  <button data-number="4">A. B. C.</button>
-                  <button data-number="6">i. ii. iii.</button>
-                  <button data-number="7">I. II. III.</button>
-                  <button data-number="-1">None</button>
+                  <button data-number="0" title="Number the list 1. 2. 3.">1. 2. 3.</button>
+                  <button data-number="1" title="Number the list 1) 2) 3)">1) 2) 3)</button>
+                  <button data-number="8" title="Number the list (1) (2) (3)">(1) (2) (3)</button>
+                  <button data-number="2" title="Letter the list a. b. c.">a. b. c.</button>
+                  <button data-number="4" title="Letter the list A. B. C.">A. B. C.</button>
+                  <button data-number="6" title="Number the list i. ii. iii.">i. ii. iii.</button>
+                  <button data-number="7" title="Number the list I. II. III.">I. II. III.</button>
+                  <button data-number="-1" title="Take the numbering off">None</button>
                   <label class="popfield">Start at <input id="numstart" type="number" min="1" max="999" value="1" aria-label="Start numbering at"></label>
                 </div>
               </div>
@@ -167,10 +168,10 @@
             <button id="indr" title="Increase indent" aria-label="Increase indent"><svg class="i"><use href="#i-indr"/></svg></button>
             <div class="menu"><button id="spbtn" class="ib" title="Line and paragraph spacing" aria-label="Line and paragraph spacing" aria-haspopup="true" aria-expanded="false" aria-controls="sppop"><svg class="i"><use href="#i-sp"/></svg>▾</button>
               <div class="pop" id="sppop" hidden>
-                <button data-spacing="1">Single (1.0)</button>
-                <button data-spacing="1.15">1.15</button>
-                <button data-spacing="1.5">1.5 lines</button>
-                <button data-spacing="2">Double (2.0)</button>
+                <button data-spacing="1" title="Single line spacing">Single (1.0)</button>
+                <button data-spacing="1.15" title="Line spacing 1.15 (a little more than single)">1.15</button>
+                <button data-spacing="1.5" title="One and a half line spacing">1.5 lines</button>
+                <button data-spacing="2" title="Double line spacing">Double (2.0)</button>
                 <label class="popfield">Exactly <input id="spexact" type="text" inputmode="decimal" aria-label="Exact line spacing in points"> pt</label>
                 <hr>
                 <label class="popfield">Space before <input id="spbefore" type="text" inputmode="decimal" aria-label="Space before in points"> pt</label>
@@ -225,9 +226,12 @@
         <div class="gb">
           <div class="menu"><button id="addtable" class="big" title="Insert a table" aria-haspopup="true" aria-expanded="false" aria-controls="tblpop"><svg class="i"><use href="#i-table"/></svg>Table ▾</button>
             <div class="pop" id="tblpop" hidden>
+              <div id="tblgridlabel" class="tblgridlabel">Choose the size of the table</div>
+              <div id="tblgrid" class="tblgrid" role="grid" aria-label="Table size: point to choose the rows and columns, then click"></div>
+              <hr>
               <label class="popfield">Rows <input id="tblrows" type="number" min="1" max="60" value="3" aria-label="Number of rows"></label>
               <label class="popfield">Columns <input id="tblcols" type="number" min="1" max="30" value="3" aria-label="Number of columns"></label>
-              <button id="tblinsert" class="primary">Insert table</button>
+              <button id="tblinsert" class="primary" title="Insert a table with this many rows and columns">Insert table</button>
             </div>
           </div>
         </div>
@@ -282,6 +286,10 @@
               <option value="letter">Letter</option>
               <option value="legal">Legal</option>
               <option value="tabloid">Tabloid</option>
+              <option value="a2">A2 poster</option>
+              <option value="a6">A6 postcard</option>
+              <option value="dl">DL leaflet</option>
+              <option value="bizcard">Business card</option>
               <option value="custom">Custom</option>
             </select>
             <button id="pgport" class="tog ib" title="Portrait: taller than wide"><svg class="i"><use href="#i-port"/></svg>Portrait</button>
@@ -376,9 +384,9 @@
           <div class="menu"><button id="linkbtn" class="big tog" title="Link this object to a web page or e-mail address (Ctrl+click the object to open it)" aria-haspopup="true" aria-expanded="false" aria-controls="linkpop"><svg class="i"><use href="#i-link"/></svg>Link ▾</button>
             <div class="pop" id="linkpop" hidden>
               <label class="popfield wide">Address <input id="linkurl" type="text" placeholder="https://" spellcheck="false" autocomplete="off" aria-label="Link address"></label>
-              <button id="linkset" class="primary">Set link</button>
-              <button id="linkopen">Open link…</button>
-              <button id="linkdel">Remove link</button>
+              <button id="linkset" class="primary" title="Link the selected object to this address">Set link</button>
+              <button id="linkopen" title="Open the address in the web browser (after asking)">Open link…</button>
+              <button id="linkdel" title="Take the link off the selected object">Remove link</button>
             </div>
           </div>
         </div>
@@ -642,7 +650,7 @@
 <div id="masterbar" hidden role="status">
   <svg class="i"><use href="#i-master"/></svg>
   <span id="masterinfo">Editing the master page.</span>
-  <button id="mastershut">Close master page</button>
+  <button id="mastershut" title="Back to the pages (Esc)">Close master page</button>
 </div>
 <main>
   <nav id="thumbs" aria-label="Pages"></nav>
@@ -685,19 +693,25 @@
   <nav id="filenav" aria-label="File">
     <button id="fileback" title="Back to the publication (Esc)">←&nbsp; Back</button>
     <div class="brand">OpenPub</div>
-    <button data-pane="new" aria-pressed="false">New</button>
-    <button data-pane="open" aria-pressed="false">Open</button>
+    <button data-pane="new" aria-pressed="false" title="Start a new publication (Ctrl+N)">New</button>
+    <button data-pane="open" aria-pressed="false" title="Open a publication (Ctrl+O)">Open</button>
     <hr>
-    <button id="fsave" class="needs-doc">Save</button>
-    <button id="saveas" class="needs-doc">Save As…</button>
-    <button data-pane="export" class="needs-doc" aria-pressed="false">Export</button>
-    <button id="print" class="needs-doc">Print…</button>
+    <button id="fsave" class="needs-doc" title="Save (Ctrl+S)">Save</button>
+    <button id="saveas" class="needs-doc" title="Save under a new name or in another folder (Ctrl+Shift+S)">Save As…</button>
+    <button data-pane="export" class="needs-doc" aria-pressed="false" title="Make a PDF, a picture or a Word document">Export</button>
+    <button id="print" class="needs-doc" title="Print (Ctrl+P)">Print…</button>
     <hr>
-    <button data-pane="info" class="needs-doc" aria-pressed="false">Info</button>
+    <button data-pane="info" class="needs-doc" aria-pressed="false" title="About this publication: pages, size, fonts">Info</button>
     <span class="grow"></span>
-    <button data-pane="options" aria-pressed="false">Options</button>
+    <button data-pane="help" aria-pressed="false" title="How to do things, and keyboard shortcuts (F1)">Help</button>
+    <button data-pane="options" aria-pressed="false" title="Settings">Options</button>
   </nav>
   <div id="filebody">
+    <div id="assocask" hidden role="region" aria-label="Open Publisher files with OpenPub">
+      <b>Open .pub files with OpenPub?</b>
+      <span>Publisher files aren't set to open with OpenPub on this computer yet.</span>
+      <span class="btns"><button id="assocyes" class="primary" title="Make OpenPub open .pub files when they are double-clicked">Yes, set it up</button><button id="assocno" title="Don't ask again">Not now</button></span>
+    </div>
     <section id="fp-new" hidden>
       <h1>New</h1>
       <p class="lead">Start a blank publication. Choose the page size.</p>
@@ -709,12 +723,7 @@
     <section id="fp-open" hidden>
       <h1>Open</h1>
       <p class="lead">Open a Microsoft Publisher (.pub) or OpenPub (.opub) file. You can also drop a file onto this window.</p>
-      <div id="assocask" hidden role="region" aria-label="Open Publisher files with OpenPub">
-        <b>Open .pub files with OpenPub?</b>
-        <span>Publisher files aren't set to open with OpenPub on this computer yet.</span>
-        <span class="btns"><button id="assocyes" class="primary">Yes, set it up</button><button id="assocno">Not now</button></span>
-      </div>
-      <p><button id="open" class="primary big">Browse…</button></p>
+      <p><button id="open" class="primary big" title="Find a publication on this computer or a network drive (Ctrl+O)">Browse…</button></p>
       <h2>Recent</h2>
       <div id="recent" role="list"></div>
     </section>
@@ -738,6 +747,39 @@
         <ul id="infonotelist"></ul>
       </div>
     </section>
+    <section id="fp-help" hidden>
+      <h1>Help</h1>
+      <p class="lead">How to do the most common things. Hover over any button to see what it does.</p>
+      <div class="howto">
+        <div><h3>Add text</h3><p><b>Insert</b> &gt; <b>Text box</b>, then click on the page (or drag to choose the size) and type. To change text, double-click it - or click the box once and just start typing.</p></div>
+        <div><h3>Change the font, size or colour</h3><p>Select the words (or click the box's edge for all of it), then use the <b>Home</b> tab. The font and size boxes open lists; the colour box opens a palette.</p></div>
+        <div><h3>Add a picture</h3><p>Drag a picture from File Explorer onto the page, paste one with <kbd>Ctrl+V</kbd> (a screenshot works too), or use <b>Insert</b> &gt; <b>Picture</b>.</p></div>
+        <div><h3>Add a shape or a line</h3><p><b>Insert</b> &gt; <b>Shapes</b> (or Rectangle, Ellipse, Line), then click on the page or drag to draw it. Hold <kbd>Shift</kbd> for a square, a circle or a straight line.</p></div>
+        <div><h3>Add WordArt</h3><p><b>Insert</b> &gt; <b>WordArt</b>, type your words in the box that appears, then press <kbd>Esc</kbd>. Double-click WordArt to change its words.</p></div>
+        <div><h3>Line things up</h3><p>Drag objects: pink lines show when they line up with the page edges, the middle of the page or each other. Hold <kbd>Alt</kbd> to place freely. <b>Shape Format</b> &gt; <b>Align</b> lines up several at once.</p></div>
+        <div><h3>A red <span class="ovfdemo">!</span> on a text box</h3><p>Some of the text doesn't fit. Click the <b>!</b>, then <b>Make box fit text</b> or <b>Shrink text to fit</b> - or drag the box bigger.</p></div>
+        <div><h3>Undo a mistake</h3><p><kbd>Ctrl+Z</kbd> takes back the last change (again for the one before); <kbd>Ctrl+Y</kbd> puts it back.</p></div>
+        <div><h3>Save your work</h3><p><kbd>Ctrl+S</kbd>. OpenPub saves an OpenPub (.opub) file; a Publisher (.pub) file you opened is left as it was. Unsaved work is kept in a recovery copy and offered back if OpenPub closes unexpectedly.</p></div>
+        <div><h3>Make a PDF or print</h3><p><b>File</b> &gt; <b>Export</b> &gt; <b>PDF</b> to hand in or share; <b>File</b> &gt; <b>Print</b> (<kbd>Ctrl+P</kbd>) to print.</p></div>
+        <div><h3>Pages</h3><p>The <b>Page</b> tab adds, copies, deletes and moves pages, and changes the page size, background and border. Things on the master page appear on every page.</p></div>
+        <div><h3>Right-click</h3><p>Right-click an object for copy, paste, delete, bring to front and more; right-click an empty part of the page to add a text box there.</p></div>
+      </div>
+      <h2>Keyboard shortcuts</h2>
+      <table class="keys">
+        <tr><th>Save</th><td><kbd>Ctrl+S</kbd></td><th>Undo / Redo</th><td><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd></td></tr>
+        <tr><th>Save as</th><td><kbd>Ctrl+Shift+S</kbd></td><th>Cut / Copy / Paste</th><td><kbd>Ctrl+X</kbd> / <kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd></td></tr>
+        <tr><th>Open</th><td><kbd>Ctrl+O</kbd></td><th>Duplicate</th><td><kbd>Ctrl+D</kbd></td></tr>
+        <tr><th>New</th><td><kbd>Ctrl+N</kbd></td><th>Select everything on the page</th><td><kbd>Ctrl+A</kbd></td></tr>
+        <tr><th>Print</th><td><kbd>Ctrl+P</kbd></td><th>Group / Ungroup</th><td><kbd>Ctrl+G</kbd> / <kbd>Ctrl+Shift+G</kbd></td></tr>
+        <tr><th>Find / Replace</th><td><kbd>Ctrl+F</kbd> / <kbd>Ctrl+H</kbd></td><th>Delete what's selected</th><td><kbd>Delete</kbd></td></tr>
+        <tr><th>Bold / Italic / Underline</th><td><kbd>Ctrl+B</kbd> / <kbd>Ctrl+I</kbd> / <kbd>Ctrl+U</kbd></td><th>Move a little / more / very little</th><td>arrow keys / with <kbd>Shift</kbd> / with <kbd>Alt</kbd></td></tr>
+        <tr><th>Left / Centre / Right / Justify</th><td><kbd>Ctrl+L</kbd> <kbd>Ctrl+E</kbd> <kbd>Ctrl+R</kbd> <kbd>Ctrl+J</kbd></td><th>Type in the selected box</th><td><kbd>Enter</kbd> (or just type)</td></tr>
+        <tr><th>Bigger / smaller text</th><td><kbd>Ctrl+Shift+&gt;</kbd> / <kbd>Ctrl+Shift+&lt;</kbd></td><th>Stop typing, or put a tool down</th><td><kbd>Esc</kbd></td></tr>
+        <tr><th>Zoom in / out</th><td><kbd>Ctrl++</kbd> / <kbd>Ctrl+-</kbd> (or <kbd>Ctrl</kbd>+wheel)</td><th>Next / previous page</th><td><kbd>Page Down</kbd> / <kbd>Page Up</kbd></td></tr>
+        <tr><th>Fit the page width</th><td><kbd>Ctrl+0</kbd></td><th>Open a link on an object</th><td><kbd>Ctrl</kbd>+click</td></tr>
+        <tr><th>This help</th><td><kbd>F1</kbd></td><th>Keep proportions, 15° steps</th><td>hold <kbd>Shift</kbd> while resizing or turning</td></tr>
+      </table>
+    </section>
     <section id="fp-options" hidden>
       <h1>Options</h1>
       <div class="rows">
@@ -748,10 +790,10 @@
   </div>
 </div>
 <div id="notes" hidden role="status"></div>
-<div id="toolhint" hidden role="status"><span></span><button id="toolcancel">Cancel</button></div>
+<div id="toolhint" hidden role="status"><span></span><button id="toolcancel" title="Put the drawing tool down (Esc)">Cancel</button></div>
 <div id="ctxmenu" class="ctxmenu" hidden role="menu"></div>
 <div id="swatchpop" class="pickpop swatchpop" hidden role="dialog" aria-label="Colours"></div>
-<div id="savebar" hidden role="alert"><span>This publication hasn't been saved yet.</span><button id="savebarsave" class="primary">Save it now</button><button id="savebarx" title="Remind me later" aria-label="Remind me later">×</button></div>
+<div id="savebar" hidden role="alert"><span>This publication hasn't been saved yet.</span><button id="savebarsave" class="primary" title="Save the publication (Ctrl+S)">Save it now</button><button id="savebarx" title="Remind me later" aria-label="Remind me later">×</button></div>
 <script src="hyphen.js"></script>
 <script src="render.js"></script>
 <script src="app.js"></script>
