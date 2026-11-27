@@ -158,6 +158,20 @@ pub struct WordArt {
     /// Letters stand on top of one another (each turned a quarter turn against the shape).
     #[serde(skip_serializing_if = "is_false")]
     pub vertical: bool,
+    /// 3-D: the letters have depth.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extrude: Option<Extrude>,
+}
+
+/// The depth of 3-D WordArt as drawn on the page: the letters' sides run `dx`, `dy` points
+/// (from the front face), in `color` (none: a darker shade of the fill).
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+#[serde(default)]
+pub struct Extrude {
+    pub dx: f64,
+    pub dy: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 fn is_le_one(v: &u8) -> bool {

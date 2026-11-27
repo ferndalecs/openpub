@@ -617,7 +617,49 @@ impl<'a> Conv<'a> {
             // gtextFStretch, on unless explicitly off
             stretch: bools & (1 << 26) == 0 || bools & (1 << 10) != 0,
             vertical: flag(13),
+            extrude: self.extrude(s),
         })
+    }
+
+    /// 3-D depth (Office 3-D properties 0x280-0x2ff), drawn flat: how far and which way the sides
+    /// of the letters show. Office's own projection isn't reproduced; the direction follows the
+    /// object's turn when it has one, else its viewpoint (perspective) or skew (parallel)
+    /// (compared with Publisher's renders of tools/makeprobe2.ps1's WordArt).
+    fn extrude(&self, s: &EShape) -> Option<Extrude> {
+        let b = s.props.get(&0x2bf).copied().unwrap_or(0);
+        if b & 0x8 == 0 || b & 0x8_0000 == 0 {
+            return None;
+        }
+        let depth = s.props.get(&0x285).map(|v| emu(*v)).unwrap_or(36.0).clamp(0.0, 400.0);
+        let deg = |id: u16| s.props.get(&id).map(|v| (*v as i32 as f64 / 65536.0).to_radians());
+        let style = s.props.get(&0x2ff).copied().unwrap_or(0);
+        let (yrot, xrot) = (deg(0x2c0).unwrap_or(0.0), deg(0x2c1).unwrap_or(0.0));
+        let (mut dx, mut dy);
+        if yrot.abs() > 1e-6 || xrot.abs() > 1e-6 {
+            // turned: the side turned towards the viewer shows
+            dx = -yrot.sin();
+            dy = xrot.sin();
+        } else if style & 0x4 == 0 {
+            // perspective: the sides show away from the viewpoint
+            let vx = s.props.get(&0x2cb).map(|v| *v as i32).unwrap_or(1_250_000);
+            let vy = s.props.get(&0x2cc).map(|v| *v as i32).unwrap_or(-1_250_000);
+            dx = -(vx.signum() as f64) * 0.35;
+            dy = (vy.signum() as f64) * 0.35;
+        } else {
+            // parallel: along the skew angle, by the skew amount
+            let a = deg(0x2d0).unwrap_or(225f64.to_radians());
+            let amount = s.props.get(&0x2d1).map(|v| *v as i32 as f64 / 100.0).unwrap_or(0.5).clamp(0.0, 1.0);
+            dx = a.cos() * amount;
+            dy = -a.sin() * amount;
+        }
+        if dx.abs() + dy.abs() < 1e-3 {
+            dy = 0.3;
+        }
+        // (the full depth seen edge-on is too much: Office draws it foreshortened)
+        let k = depth * 0.45;
+        dx *= k;
+        dy *= k;
+        Some(Extrude { dx, dy, color: s.props.get(&0x287).and_then(|v| self.color(*v)) })
     }
 
     fn rect_pt(&self, r: [f64; 4]) -> [f64; 4] {

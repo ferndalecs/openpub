@@ -2515,6 +2515,108 @@
     syncToolbar();
   }
 
+
+  // ---- picture borders (BorderArt) -------------------------------------------------------------
+  // Built-in borders are drawn here as small pictures (one picture for every position: they are
+  // the same all round); borders already in the publication (from Publisher) can be chosen too.
+  const BORDER_ART = {
+    stars: '<path d="M32 4l8.2 17.6 19.3 2.3-14.2 13.2 3.7 19.1L32 46.8 15 56.2l3.7-19.1L4.5 23.9l19.3-2.3z" fill="#f9c80e" stroke="#c98a00" stroke-width="2"/>',
+    hearts: '<path d="M32 56S6 40 6 22c0-9 7-15 14-15 6 0 10 4 12 8 2-4 6-8 12-8 7 0 14 6 14 15 0 18-26 34-26 34z" fill="#e53935" stroke="#a31515" stroke-width="2"/>',
+    dots: '<circle cx="32" cy="32" r="14" fill="#23211d"/>',
+    flowers: '<g fill="#ec407a"><circle cx="32" cy="16" r="11"/><circle cx="47" cy="27" r="11"/><circle cx="41" cy="45" r="11"/><circle cx="23" cy="45" r="11"/><circle cx="17" cy="27" r="11"/></g><circle cx="32" cy="32" r="8" fill="#fdd835"/>',
+    squares: '<rect x="12" y="12" width="40" height="40" rx="4" fill="#1e88e5" stroke="#0d47a1" stroke-width="2"/>',
+    checks: '<rect width="64" height="64" fill="#fff"/><rect width="32" height="32" fill="#23211d"/><rect x="32" y="32" width="32" height="32" fill="#23211d"/>',
+    apples: '<path d="M32 18c-4-4-14-5-19 2-6 9-1 26 8 32 4 3 7 2 11 0 4 2 7 3 11 0 9-6 14-23 8-32-5-7-15-6-19-2z" fill="#d32f2f" stroke="#8e1b1b" stroke-width="2"/><path d="M32 18c0-6 2-10 6-12" stroke="#5d4037" stroke-width="3" fill="none"/><path d="M34 12c6-6 14-4 16 0-6 4-12 4-16 0z" fill="#43a047"/>',
+    smiles: '<circle cx="32" cy="32" r="26" fill="#fdd835" stroke="#c98a00" stroke-width="2"/><circle cx="23" cy="26" r="4" fill="#23211d"/><circle cx="41" cy="26" r="4" fill="#23211d"/><path d="M19 37q13 13 26 0" stroke="#23211d" stroke-width="3.5" fill="none" stroke-linecap="round"/>',
+  };
+  const borderImages = new Map(); // design -> picture number (for this publication)
+  let imageWait = new Map(), imageToken = 0;
+  function svgToPng(inner, px) {
+    return new Promise((resolve, reject) => {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">${inner}</svg>`;
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = px;
+        c.height = px;
+        c.getContext('2d').drawImage(img, 0, 0, px, px);
+        const u = c.toDataURL('image/png');
+        resolve(u.slice(u.indexOf(',') + 1));
+      };
+      img.onerror = reject;
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    });
+  }
+  /** Stores pictures made here with the program; resolves to their numbers. */
+  function addImages(list) {
+    const token = 'i' + (++imageToken);
+    return new Promise((resolve) => {
+      imageWait.set(token, resolve);
+      send({ cmd: 'addImages', token, list });
+      setTimeout(() => { if (imageWait.has(token)) { imageWait.delete(token); resolve(null); } }, 10000);
+    });
+  }
+  function imagesAdded(token, list) {
+    const done = imageWait.get(token);
+    if (!done) return;
+    imageWait.delete(token);
+    for (const i of list) if (Number.isInteger(i) && doc && doc.images && !doc.images[i]) doc.images[i] = { mime: 'image/png', orientation: 1 };
+    version++;
+    done(list);
+  }
+  /** Gives the selected shapes a picture border (`design`: a built-in name, or "doc:<n>" for the
+   * n-th border already in the publication), or takes it off (''). */
+  async function setBorderArt(design) {
+    if (!sel || !doc) return;
+    const shapes = sel.shapes.filter((s) => s.kind !== 'line' && s.kind !== 'group' && s.kind !== 'table');
+    if (!shapes.length) return;
+    if (!design) { editShapes((s) => { if (shapes.includes(s)) delete s.border_art; }, true); return; }
+    let tiles = null;
+    if (design.startsWith('doc:')) {
+      tiles = docBorders()[parseInt(design.slice(4), 10)] || null;
+    } else if (BORDER_ART[design]) {
+      if (!borderImages.has(design)) {
+        const png = await svgToPng(BORDER_ART[design], 96);
+        const got = await addImages([png]);
+        if (!got || !Number.isInteger(got[0])) { showNotes(["The picture border couldn't be made."]); return; }
+        borderImages.set(design, got[0]);
+      }
+      tiles = new Array(8).fill(borderImages.get(design));
+    }
+    if (!tiles) return;
+    const size = Math.max(4, Math.min(72, num('bordersize') || 16));
+    editShapes((s) => {
+      if (!shapes.includes(s)) return;
+      s.border_art = { tiles: tiles.slice(), size: (s.border_art && s.border_art.size) || size };
+      delete s.line;
+    }, true);
+  }
+  function setBorderSize(v) {
+    if (!(v > 0)) return;
+    v = Math.max(4, Math.min(72, v));
+    editShapes((s) => { if (s.border_art) s.border_art.size = v; }, true);
+  }
+  /** The picture borders already in the publication (their tiles). */
+  function docBorders() {
+    const seen = new Map();
+    const walk = (s) => { if (s.border_art && Array.isArray(s.border_art.tiles)) seen.set(s.border_art.tiles.join(','), s.border_art.tiles); (s.children || []).forEach(walk); };
+    if (doc) for (const p of doc.pages) p.shapes.forEach(walk);
+    return [...seen.values()];
+  }
+  /** The border list: the built-in ones, then the publication's own. */
+  function fillBorderList() {
+    const sel_ = $('borderart');
+    for (const o of [...sel_.querySelectorAll('option[data-doc]')]) o.remove();
+    docBorders().forEach((t, i) => {
+      if (BORDER_ART && [...borderImages.values()].includes(t[0]) && t.every((x) => x === t[0])) return; // (a built-in one)
+      const o = document.createElement('option');
+      o.value = 'doc:' + i;
+      o.dataset.doc = '1';
+      o.textContent = 'From this publication ' + (i + 1);
+      sel_.appendChild(o);
+    });
+  }
+
   // ---- linked text boxes ------------------------------------------------------------------------
   // A story can flow through several linked boxes, on several pages. The first box holds the
   // text; each box on the page shows a stand-in for its part ("view", render.js chainViews).
@@ -2941,6 +3043,15 @@
     const grad = f && f.fill.color2 ? f.fill : null;
     setv('graddir', grad ? String(grad.angle || 0) : '');
     setv('pattern', f && f.fill.pattern ? f.fill.pattern : '');
+    const ba = sel && sel.shapes.find((s) => s.border_art);
+    if (ba) {
+      fillBorderList();
+      const t = ba.border_art.tiles || [];
+      let v = [...borderImages.entries()].find(([, i]) => t.every((x) => x === i));
+      if (v) setv('borderart', v[0]);
+      else { const i = docBorders().findIndex((d) => d.join(',') === t.join(',')); setv('borderart', i >= 0 ? 'doc:' + i : ''); }
+      setv('bordersize', fmtPt(ba.border_art.size));
+    } else { setv('borderart', ''); setv('bordersize', ''); }
     if ($('pattern').selectedIndex < 0) $('pattern').selectedIndex = 0;
     if ($('graddir').selectedIndex < 0) $('graddir').value = '180';
     if (grad && isHex(grad.color2)) $('fill2').value = grad.color2;
@@ -3048,6 +3159,8 @@
     en(['addwa'], has);
     en(['linecolor', 'linewidth', 'dash'], s && lv.length > 0);
     en(['arrows'], s && lv.some((x) => x.kind === 'line'));
+    en(['borderart'], s && sel.shapes.some((x) => x.kind !== 'line' && x.kind !== 'group' && x.kind !== 'table'));
+    en(['bordersize'], s && sel.shapes.some((x) => x.border_art));
     en(['gx', 'gy', 'grot', 'rotl', 'rotr', 'rot0'], s);
     en(['gw', 'gh'], s && n === 1);
     en(['ml', 'mt', 'mr', 'mb', 'vt', 'vm', 'vb', 'ncols', 'colgap'], s && lv.some((x) => x.text));
@@ -4454,6 +4567,7 @@
     cancelTool();
     hideCtx();
     hideSwatches();
+    borderImages.clear();
     unsavedSince = 0;
     $('savebar').hidden = true;
     if (masterMode) setMasterMode(false);
@@ -4674,6 +4788,9 @@
   onChange('wastyle', (v) => setWordArt(null, parseInt(v, 10)));
   onChange('graddir', (v) => setGradient(v === '' ? null : parseFloat(v)));
   onChange('pattern', (v) => setPattern(v));
+  onChange('borderart', (v) => setBorderArt(v));
+  onChange('bordersize', () => setBorderSize(num('bordersize')));
+  $('borderart').addEventListener('focus', fillBorderList);
   onChange('fill2', (v) => setGradient(undefined, v));
   on('shadowbtn', () => setShadow(!$('shadowbtn').classList.contains('on')));
   onChange('shadowcolor', (v) => setShadow(true, v));
@@ -5005,6 +5122,7 @@
       document.body.classList.toggle('dragpics', v === 2 && !!doc);
     },
     picturesAdded,
+    imagesAdded,
     error: (msg) => showNotes([msg]),
     note: (msg) => showNotes([msg], 6000),
     saved: (name, path) => {
@@ -5050,6 +5168,7 @@
       replacePicture, setCropMode, cropTo, setCropSide, copySel, pasteClip, handlePaste, setMasterMode, showTab, syncToolbar,
       quiet: (v) => { quiet = !!v; }, toLocal, gridHit, rowEdges,
       clean: () => setDirty(false),
+      setBorderArt, setBorderSize, docBorders,
       bookletPlan, prepareBooklet, exportBookletPdf, printRestore: () => printRestore && printRestore(),
       setPattern,
       armTool, cancelTool, tool: () => tool, snapTargets, snap1, showCtx, hideCtx, openSwatches, hideSwatches, setArrows, picturesAdded,

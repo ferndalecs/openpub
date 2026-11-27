@@ -123,6 +123,9 @@ enum UserEvent {
     PastePicture(Vec<u8>),
     /// Pictures read for adding (and the ones that couldn't be).
     PicturesReady { items: Vec<(Image, u32, u32)>, errors: Vec<String>, at: Option<(f64, f64)> },
+    /// Pictures the page made itself (the tiles of a picture border): stored, then their numbers
+    /// handed back with `token`.
+    AddImages { token: String, list: Vec<Vec<u8>> },
 }
 
 /// Picture files OpenPub can add.
@@ -751,6 +754,25 @@ fn main() -> wry::Result<()> {
                     let _ = proxy.send_event(UserEvent::PicturesReady { items, errors, at });
                 });
             }
+            Event::UserEvent(UserEvent::AddImages { token, list }) => {
+                let mut st = state.lock().unwrap();
+                if st.json.is_none() {
+                    return;
+                }
+                let mut out = Vec::new();
+                for bytes in list {
+                    match prepare_picture(bytes, "A border picture") {
+                        Ok((img, _, _)) => {
+                            st.images.push(img);
+                            out.push(st.images.len() - 1);
+                        }
+                        Err(_) => out.push(usize::MAX),
+                    }
+                }
+                drop(st);
+                let list: Vec<serde_json::Value> = out.iter().map(|i| if *i == usize::MAX { serde_json::Value::Null } else { (*i).into() }).collect();
+                let _ = webview.evaluate_script(&format!("window.OpenPubApp && OpenPubApp.imagesAdded({}, {})", js_string(&token), serde_json::Value::Array(list)));
+            }
             Event::UserEvent(UserEvent::PastePicture(bytes)) => {
                 if state.lock().unwrap().json.is_none() {
                     return;
@@ -874,6 +896,19 @@ fn on_message(body: &str, state: &Mutex<State>, proxy: &EventLoopProxy<UserEvent
             UserEvent::Ready
         }
         Some("autosave") => UserEvent::Autosave { doc: doc() },
+        Some("addImages") => {
+            use base64::Engine;
+            let token: String = msg["token"].as_str().unwrap_or("").chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(40).collect();
+            // small PNG pictures only (at most 16, 1 MB each)
+            let list: Vec<Vec<u8>> = msg["list"]
+                .as_array()
+                .map(|a| a.iter().take(16).filter_map(|v| v.as_str()).filter(|s| s.len() < 1_400_000).filter_map(|s| base64::engine::general_purpose::STANDARD.decode(s).ok()).filter(|b| b.starts_with(&[0x89, b'P', b'N', b'G'])).collect())
+                .unwrap_or_default();
+            if list.is_empty() {
+                return;
+            }
+            UserEvent::AddImages { token, list }
+        }
         Some("pastePicture") => {
             use base64::Engine;
             let data = msg["data"].as_str().unwrap_or("");

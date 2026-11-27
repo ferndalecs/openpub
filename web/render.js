@@ -1635,6 +1635,29 @@
       if (shape.line) { t.setAttribute('vector-effect', 'non-scaling-stroke'); t.setAttribute('paint-order', 'stroke'); }
       g.appendChild(t);
     });
+    // 3-D: copies of the letters behind them, stepping back along the depth, in the side colour
+    const ex = wa.extrude;
+    if (ex && isFinite(ex.dx) && isFinite(ex.dy) && Math.hypot(ex.dx, ex.dy) > 0.2) {
+      const len = Math.min(120, Math.hypot(ex.dx, ex.dy));
+      const steps = Math.max(2, Math.min(60, Math.ceil(len / 0.6)));
+      const base = /^#[0-9a-f]{6}$/i.test(ex.color || '') ? ex.color : shadeColor(shape.fill && /^#[0-9a-f]{6}$/i.test(shape.fill.color) ? shape.fill.color : '#808080', -0.45);
+      const back = svgEl('g', {});
+      for (let i = steps; i >= 1; i--) {
+        const f = i / steps;
+        const layer = svgEl('g', { transform: `translate(${ex.dx * f} ${ex.dy * f})` });
+        const copy = g.cloneNode(true);
+        // (the far end a little darker, so the sides read as sides)
+        const c = shadeColor(base, -0.35 * f);
+        for (const t of copy.querySelectorAll('text')) {
+          t.setAttribute('fill', c);
+          t.removeAttribute('fill-opacity');
+          if (i < steps) t.setAttribute('stroke', 'none');
+        }
+        layer.appendChild(copy);
+        back.appendChild(layer);
+      }
+      svg.appendChild(back);
+    }
     svg.appendChild(g);
     svg.style.overflow = 'visible';
     return svg;

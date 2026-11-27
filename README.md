@@ -71,7 +71,8 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
     stars and banners, callouts); WordArt (words typed on the page - double-click it - font,
     straight/arched/wavy/slanted); fill colour,
     two-colour gradient and transparency, outline colour/width/dash, arrowheads on lines,
-    shadow; colours from a palette with the publication's own and recently used colours; align objects with
+    shadow; a picture border (stars, hearts, dots, flowers, squares, checks, apples, smiley faces,
+    or one from the publication); colours from a palette with the publication's own and recently used colours; align objects with
     each other or the page, flip; a link to a web or e-mail address (Ctrl+click opens it, after
     asking); add pictures with Insert > Picture, by dropping picture files on the page or by
     pasting (a screenshot, a picture copied from a web page); replace a picture, crop it with handles or by percentages, brightness, contrast,
@@ -178,7 +179,7 @@ setup, `tools/extratest.js` for WordArt, effects, links, table styles, picture a
 the page picture and the designs, `tools/wraptest.js` for editing text that flows round a
 shape, `tools/safetytest.js` for not losing unsaved work, `tools/linktest.js` for linked text boxes
 and text positions, `tools/texttest.js` for the font and size lists, WordArt typed on the page and
-text that doesn't fit). `tools/booktest.js` covers pattern fills and booklets. `tools/helptest.js` covers the help page, the table grid, the designs (all their text must
+text that doesn't fit). `tools/booktest.js` covers pattern fills and booklets; `tools/bordertest.js` picture borders and 3-D WordArt. `tools/helptest.js` covers the help page, the table grid, the designs (all their text must
 fit), the page sizes and the tooltips. `tools/drawtest.js` covers drawing with the mouse, snapping,
 the right-click menu, colour swatches, arrowheads and pictures by paste and drop.
 `tools/rectest.ps1` checks recovery copies: a window is killed mid-work
@@ -194,10 +195,12 @@ feature samples to Word, opens each in Word and compares them with Publisher's p
     inline table or picture, frames whose paragraphs are aligned differently, and centred or
     right-aligned text with more than one shape beside a line, where it keeps to the wider
     side. Line breaks beside a shape can differ a little.
-  * WordArt: plain, arched, wavy and vertical (stacked) styles are drawn; 3-D/extruded styles,
-    multi-stop and preset gradients and textures come out flat or approximated.
-  * BorderArt (picture borders) is drawn from the tiles stored in the file, on Windows; it
-    can't be added or changed in the editor. Gradients have two colours. Pattern fills (shapes
+  * WordArt: plain, arched, wavy and vertical (stacked) styles are drawn; 3-D WordArt is drawn
+    with depth in its side colour, its direction approximated (Office's 3-D projection isn't
+    reproduced); multi-stop and preset gradients and textures come out flat or approximated.
+  * BorderArt (picture borders) is drawn from the tiles stored in the file, on Windows. In the
+    editor a picture border can be added (eight built-in designs, or one already in the
+    publication), resized or taken off; it isn't carried into the Word export. Gradients have two colours. Pattern fills (shapes
     and page backgrounds) are drawn; in the Word export they become the colour they look like
     from a distance.
   * Horizontal scaling of characters isn't drawn (strikethrough, small caps, all caps, outline,
