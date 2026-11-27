@@ -273,11 +273,14 @@ pub struct Line {
     /// 0 single, 1 double, 2 thick-thin, 3 thin-thick, 4 triple.
     #[serde(skip_serializing_if = "is_zero_u32")]
     pub compound: u32,
+    /// Round line ends (a dotted line's dots are round).
+    #[serde(skip_serializing_if = "is_false")]
+    pub round: bool,
 }
 
 impl Default for Line {
     fn default() -> Self {
-        Line { color: "#000000".into(), width: 0.75, dash: 0, start_arrow: 0, end_arrow: 0, start_arrow_w: 1, start_arrow_l: 1, end_arrow_w: 1, end_arrow_l: 1, inset: false, compound: 0 }
+        Line { color: "#000000".into(), width: 0.75, dash: 0, start_arrow: 0, end_arrow: 0, start_arrow_w: 1, start_arrow_l: 1, end_arrow_w: 1, end_arrow_l: 1, inset: false, compound: 0, round: false }
     }
 }
 

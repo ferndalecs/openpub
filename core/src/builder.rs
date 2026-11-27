@@ -585,6 +585,8 @@ impl<'a> Conv<'a> {
             // fInsetPen, when its "use" bit is set
             inset: bools & (1 << 22) != 0 && bools & (1 << 6) != 0,
             compound: get(0x0d, 0).min(4),
+            // lineEndCapStyle: 0 round, 1 square, 2 flat (the default)
+            round: get(0x17, 2) == 0,
         })
     }
 

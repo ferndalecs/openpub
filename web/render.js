@@ -428,6 +428,8 @@
         tail = 0.15 * f.gap * fr.size + 0.05;
       }
     }
+    const p0 = body.paras[0];
+    const firstH = fr ? lineEm(fr.font, fr.bold, fr.italic) * fr.size * (p0.spacing_exact ? 1 : Math.max(1, p0.spacing || 1)) : 0;
     // A shape wrapped tightly comes as thin bands (r[4] says which shape): the line's own top and
     // bottom allowances apply to the shape as a whole, so move all its bands down by the bottom
     // allowance and take the top one off its last.
@@ -436,7 +438,12 @@
     for (const r of body.wrap) {
       const x0 = Math.max(0, r[0] - m[0]), x1 = Math.min(cw, r[2] - m[0]);
       const y0 = Math.max(0, r[1] - m[1] + slack + tail);
-      const y1 = r[4] != null ? Math.min(r[3] + slack + tail, bottoms.get(r[4]) - head) - m[1] : r[3] - m[1] - head;
+      // (a shape hanging down over the top of the text: the first line must clear it entirely,
+      // if the frame has room for it below - Year 7 booklet p11, where a heading box reaches
+      // 0.7pt into the frame's text; short heading frames (p10) keep their line where it is)
+      const room = frame.h - m[1] - m[3] >= r[3] - m[1] + firstH;
+      const h = r[1] - m[1] <= 0 && room ? 0 : head;
+      const y1 = r[4] != null ? Math.min(r[3] + slack + tail, bottoms.get(r[4]) - h) - m[1] : r[3] - m[1] - h;
       if (x1 - x0 > 0.5 && y1 - y0 > 0.5) rects.push({ x0, x1, y0, y1 });
     }
     if (!rects.length) return;
@@ -1042,7 +1049,8 @@
           const L = lines[i];
           const expect = L.paraTop != null ? L.paraTop : i > 0 ? lines[i - 1].top + lines[i - 1].h : null;
           if (expect == null || !(L.top - expect >= 0.5) || L.h < 1) continue;
-          const steps = Math.ceil((L.top - expect) / L.advance - 0.02);
+          // (at least one: a line pushed down a fraction of a point still moves a whole line)
+          const steps = Math.max(1, Math.ceil((L.top - expect) / L.advance - 0.02));
           const extra = expect + steps * L.advance - L.top;
           if (extra < 0.3) continue;
           // the shape it was pushed under
@@ -1201,7 +1209,11 @@
       node.setAttribute('stroke-width', l.width);
       const w = Math.max(l.width, 0.5);
       const dash = { 1: [3, 1], 2: [1, 1], 3: [3, 1, 1, 1], 4: [3, 1, 1, 1, 1, 1], 5: [1, 1], 6: [4, 3], 7: [8, 3], 8: [4, 3, 1, 3], 9: [8, 3, 1, 3], 10: [8, 3, 1, 3, 1, 3] }[l.dash];
-      if (dash) node.setAttribute('stroke-dasharray', dash.map((d) => d * w).join(' '));
+      // round ends: the caps add half the width at each end of a dash, so dots come out round
+      // and as far apart as square ones would be (Publisher's "round dot": 0x1d7 = 0; style 5)
+      const round = l.round || l.dash === 5;
+      if (round) node.setAttribute('stroke-linecap', 'round');
+      if (dash) node.setAttribute('stroke-dasharray', dash.map((d, i) => (round ? (i % 2 ? d * w + w : Math.max(0.01, d * w - w)) : d * w)).join(' '));
     } else {
       node.setAttribute('stroke', 'none');
     }
@@ -1712,6 +1724,7 @@
     const taken = new Set();
     const cells = t.cells.slice().sort((a, b) => a.r0 - b.r0 || a.c0 - b.c0);
     const drawn = [];
+    const slacks = [];
     for (const c of cells) {
       if (c.r0 >= rows.length || c.c0 >= t.cols.length || taken.has(c.r0 + ',' + c.c0)) continue;
       const r1 = Math.min(c.r1, rows.length - 1), c1 = Math.min(c.c1, t.cols.length - 1);
@@ -1732,6 +1745,10 @@
       ctx.noHyphen = false;
       cellFlow.opOwner = c;
       inner.appendChild(cellFlow);
+      // the extra line spacing under the last line (see the row heights below)
+      const lp = c.paras[c.paras.length - 1];
+      const lr = lp && lp.runs.find((r) => !r.object && r.size);
+      if (c.valign === 'top' && c.r1 <= c.r0 && lr && !lp.spacing_exact && lp.spacing > 1) slacks.push({ inner, r: c.r0, slack: (lp.spacing - 1) * lineEm(lr.font, lr.bold, lr.italic) * lr.size });
       td.appendChild(inner);
       rows[c.r0].appendChild(td);
       if (c.borders.some((b) => b)) drawn.push({ td, borders: c.borders });
@@ -1747,6 +1764,15 @@
     ctx.after.push(() => {
       const svg = svgEl('svg', { class: 'op-svg' });
       const px = 96 / 72;
+      // A row the text makes taller than its saved height only by the extra line spacing under
+      // its last line keeps its height in Publisher (three empty 12pt lines in a 50pt row: Year 7
+      // booklet p11); a row that grows more grows by the whole line (p21).
+      for (let r = 0; r < rows.length; r++) {
+        const own = slacks.filter((s) => s.r === r);
+        if (!own.length) continue;
+        const over = rows[r].offsetHeight / px - t.rows[r];
+        if (over > 0.3 && over <= Math.max(...own.map((s) => s.slack)) + 0.3) for (const s of own) s.inner.style.marginBottom = pt(-s.slack);
+      }
       const seen = new Set();
       for (const { td, borders } of drawn) {
         const x0 = td.offsetLeft, y0 = td.offsetTop, x1 = x0 + td.offsetWidth, y1 = y0 + td.offsetHeight;

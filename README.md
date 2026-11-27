@@ -207,7 +207,9 @@ feature samples to Word, opens each in Word and compares them with Publisher's p
   * Strikethrough, small caps, all caps, outline, emboss, engrave, tracking, kerning and
     character width scaling are drawn (scaled words aren't hyphenated).
   * Hyphenation uses English (UK) patterns for all text, so line breaks in other languages
-    (e.g. Welsh) can differ from Publisher's.
+    (e.g. Welsh) can differ from Publisher's; in English too, Publisher's own hyphenation
+    sometimes breaks a word elsewhere.
+  * Text in a table cell can sit a point or two higher than in Publisher.
   * When text doesn't fit a centred or bottom-aligned frame, Publisher drops the lines that
     don't fit before aligning; OpenPub aligns all of them.
 * Editing: undo while typing is per editing session. When a shape that text flows around is

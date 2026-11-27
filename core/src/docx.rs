@@ -2022,6 +2022,9 @@ fn ln_xml(l: Option<&Line>, inset_ok: bool) -> String {
     if l.inset && inset_ok {
         o.push_str(" algn=\"in\"");
     }
+    if l.round {
+        o.push_str(" cap=\"rnd\"");
+    }
     let _ = write!(o, "><a:solidFill><a:srgbClr val=\"{}\"/></a:solidFill>", hex(&l.color));
     let dash = match l.dash {
         1 => "sysDash",
