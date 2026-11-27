@@ -610,8 +610,10 @@ fn run_props(bs: &[Block]) -> RunProps {
             (0x20, BVal::Int(v)) => r.scale = Some(*v),
             (0x00, BVal::Int(v)) => r.field = Some(*v),
             (0x24, BVal::List(l)) => {
-                // one font per script; entry 0 is the Latin font
-                if let Some(inner) = list(l, 0) {
+                // one font per script; entry 0 is the Latin font. Entry 1 almost always holds the
+                // same font, and Publisher uses it when entry 0 is missing (Cymru p43: an "8" in
+                // Aharoni stored only in entries 1 and 6)
+                if let Some(inner) = list(l, 0).or_else(|| list(l, 1)) {
                     r.font = int(inner, 0);
                 }
             }

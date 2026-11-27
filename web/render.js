@@ -1753,10 +1753,17 @@
       td.opCell = c; // the editor finds cells through this
       if (r1 > c.r0) td.rowSpan = r1 - c.r0 + 1;
       if (c1 > c.c0) td.colSpan = c1 - c.c0 + 1;
-      const m = c.margins;
+      // the text starts inside the border: Publisher draws borders centred on the grid lines and
+      // keeps the text clear of the inner half (Cymru p43: 2.25pt borders, lines break earlier)
+      const bw = (i) => (c.borders[i] ? c.borders[i].width / 2 : 0);
+      const m = [c.margins[0] + bw(0), c.margins[1], c.margins[2] + bw(2), c.margins[3]];
       td.style.padding = `${pt(m[1])} ${pt(m[2])} ${pt(m[3])} ${pt(m[0])}`;
       td.style.verticalAlign = c.valign;
-      if (c.fill) td.style.background = c.fill.color;
+      if (c.fill) {
+        // (a see-through fill: Cymru p78's cells are 50% pink over the white page)
+        const o = c.fill.opacity == null ? 1 : c.fill.opacity;
+        td.style.background = o < 1 ? `color-mix(in srgb, ${c.fill.color} ${Math.round(o * 1000) / 10}%, transparent)` : c.fill.color;
+      }
       const inner = el('div', 'op-cell');
       let cellW = -m[0] - m[2];
       for (let k = c.c0; k <= c1; k++) cellW += t.cols[k];

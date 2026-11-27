@@ -142,7 +142,7 @@ fn parse_contents(d: &[u8]) -> ContentsInfo {
                 for e in list(&bs, 2).unwrap_or(&[]) {
                     if let BVal::List(sub) = &e.val {
                         let g = |id: u8| int(sub, id).unwrap_or(0);
-                        cells.push(CellInfo { r0: g(1), r1: g(2), c0: g(3), c1: g(4), margins: [emu(g(0x0a)), emu(g(0x0c)), emu(g(0x0b)), emu(g(0x0d))], valign: g(7) });
+                        cells.push(CellInfo { r0: g(1), r1: g(2), c0: g(3), c1: g(4), margins: [emu(g(0x0a)), emu(g(0x0c)), emu(g(0x0b)), emu(g(0x0d))], valign: g(7) & 0xff });
                     }
                 }
                 info.cells.insert(*seq, cells);
@@ -753,6 +753,7 @@ impl<'a> Conv<'a> {
             if paras.iter().any(|p| p.runs.iter().any(|r| r.inline.is_some())) {
                 self.attach_objects(&mut paras);
             }
+            // (the low byte: Cymru p78's first cell stores 0x8401, middle with flags above it)
             let valign = match ci.valign {
                 1 => "middle",
                 2 => "bottom",
@@ -917,8 +918,9 @@ impl<'a> Conv<'a> {
             }
             .into(),
         );
-        // Office defaults: 1/8 inch left and right, nothing above and below
-        let dist = [(0x384u16, 9.0), (0x385, 0.0), (0x386, 9.0), (0x387, 0.0)].map(|(id, d)| s.props.get(&id).map(|v| emu(*v)).unwrap_or(d));
+        // when the file doesn't say: Publisher keeps text 0.04 inch (2.88pt) away on every side
+        // (Cymru p41's photos), not the drawing format's 1/8 inch left and right
+        let dist = [(0x384u16, 2.88), (0x385, 2.88), (0x386, 2.88), (0x387, 2.88)].map(|(id, d)| s.props.get(&id).map(|v| emu(*v)).unwrap_or(d));
         sh.wrap_dist = Some(dist);
         sh.kind = if sh.table.is_some() {
             "table"

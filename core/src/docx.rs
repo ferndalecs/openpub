@@ -248,6 +248,20 @@ fn esc(s: &str) -> String {
 }
 
 /// "#rrggbb" (or "#rgb", "rgb(r,g,b)") to "RRGGBB".
+/// An RRGGBB colour at `opacity` over white, as RRGGBB.
+fn over_white(rgb: &str, opacity: f64) -> String {
+    let a = opacity.clamp(0.0, 1.0);
+    if a >= 1.0 || rgb.len() != 6 {
+        return rgb.to_string();
+    }
+    (0..3)
+        .map(|i| {
+            let v = u8::from_str_radix(&rgb[i * 2..i * 2 + 2], 16).unwrap_or(255) as f64;
+            format!("{:02X}", (v * a + 255.0 * (1.0 - a)).round() as u8)
+        })
+        .collect()
+}
+
 fn hex(color: &str) -> String {
     let c = color.trim();
     if let Some(h) = c.strip_prefix('#') {
@@ -1635,7 +1649,8 @@ impl<'a> Exporter<'a> {
                 if let Some(c) = cell {
                     if let Some(f) = &c.fill {
                         if f.opacity > 0.0 {
-                            let _ = write!(o, "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"{}\"/>", hex(&f.color));
+                            // Word's shading can't be see-through: the colour it shows over white
+                            let _ = write!(o, "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"{}\"/>", over_white(&hex(&f.color), f.opacity));
                         }
                     }
                     let m = c.margins;
@@ -2410,4 +2425,16 @@ fn cust_geom(d: &str, geo: &[f64; 4]) -> Option<String> {
         (gh * k).round() as i64,
         o
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::over_white;
+
+    #[test]
+    fn see_through_fill_over_white() {
+        assert_eq!(over_white("FFCCCC", 0.5), "FFE6E6");
+        assert_eq!(over_white("000000", 0.25), "BFBFBF");
+        assert_eq!(over_white("123456", 1.0), "123456");
+    }
 }
