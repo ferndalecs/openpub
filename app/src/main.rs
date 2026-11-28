@@ -38,6 +38,9 @@ struct State {
     /// Smaller copies of pictures made for a PDF: (picture, size asked for, its length) -> copy.
     /// (None: the picture itself will do.)
     scaled: std::collections::HashMap<(usize, u32, usize), Option<(&'static str, Vec<u8>)>>,
+    /// See-through pictures sent to a PDF as a JPEG and a mask (images::split_alpha), keyed the
+    /// same way. (None: sent as one picture.)
+    split: std::collections::HashMap<(usize, u32, usize), Option<(Vec<u8>, Vec<u8>)>>,
     /// The file the document came from.
     path: Option<PathBuf>,
     /// That file's last-modified time and size when this window opened or saved it: a different
@@ -82,6 +85,7 @@ fn recover(state: &Mutex<State>, file: &Path) -> Result<String, String> {
     st.json = Some(json);
     st.images = images;
     st.scaled.clear();
+    st.split.clear();
     // (the changes recovered are on top of the file as it is now)
     st.stamp = meta.original.as_deref().and_then(file_stamp);
     st.path = meta.original.clone();
@@ -218,13 +222,37 @@ fn serve(state: &Mutex<State>, request: Request<Vec<u8>>) -> Response<Cow<'stati
             let body = st.json.clone().unwrap_or_else(|| "{}".into());
             respond("application/json; charset=utf-8", body.into_bytes().into(), false)
         }
+        // which pictures go to a PDF as a JPEG and a mask: "?q=picture:size,..." -> [picture, ...]
+        "split.json" => {
+            let mut st = state.lock().unwrap();
+            let q = query_value(request.uri().query(), "q").unwrap_or_default();
+            let mut out = Vec::new();
+            for item in q.split(',').take(5000) {
+                let Some((i, m)) = item.split_once(':') else { continue };
+                let (Ok(i), Ok(m)) = (i.parse::<usize>(), m.parse::<u32>()) else { continue };
+                if i < st.images.len() && (16..=20000).contains(&m) && split_of(&mut st, i, m).is_some() {
+                    out.push(i);
+                }
+            }
+            respond("application/json; charset=utf-8", serde_json::to_string(&out).unwrap_or_else(|_| "[]".into()).into_bytes().into(), false)
+        }
         p if p.starts_with("img/") => {
             let mut st = state.lock().unwrap();
             let Some(i) = p[4..].parse::<usize>().ok().filter(|i| *i < st.images.len()) else {
                 return Response::builder().status(404).body(Cow::Borrowed(&b""[..])).unwrap();
             };
             // "?max=N": a copy no bigger than N pixels on its longer side (for a PDF)
-            let max = request.uri().query().and_then(|q| q.split('&').find_map(|kv| kv.strip_prefix("max=")).and_then(|v| v.parse::<u32>().ok())).filter(|m| (16..=20000).contains(m));
+            let max = query_value(request.uri().query(), "max").and_then(|v| v.parse::<u32>().ok()).filter(|m| (16..=20000).contains(m));
+            // "&part=color" / "&part=mask": the two halves of a see-through picture (split.json)
+            let part = query_value(request.uri().query(), "part");
+            if let (Some(max), Some(part)) = (max, part.as_deref()) {
+                if let Some((color, mask)) = split_of(&mut st, i, max) {
+                    return match part {
+                        "color" => respond("image/jpeg", color.clone().into(), true),
+                        _ => respond("image/png", mask.clone().into(), true),
+                    };
+                }
+            }
             if let Some(max) = max {
                 let key = (i, max, st.images[i].bytes.len());
                 if !st.scaled.contains_key(&key) {
@@ -240,6 +268,21 @@ fn serve(state: &Mutex<State>, request: Request<Vec<u8>>) -> Response<Cow<'stati
         }
         _ => Response::builder().status(404).body(Cow::Borrowed(&b""[..])).unwrap(),
     }
+}
+
+/// A value from a URL's query ("max" in "v=3&max=400").
+fn query_value(query: Option<&str>, key: &str) -> Option<String> {
+    query?.split('&').find_map(|kv| kv.split_once('=').filter(|(k, _)| *k == key).map(|(_, v)| v.to_string()))
+}
+
+/// Picture `i` as a JPEG and a mask at `max` pixels, made once (None: not split).
+fn split_of(st: &mut State, i: usize, max: u32) -> Option<&(Vec<u8>, Vec<u8>)> {
+    let key = (i, max, st.images[i].bytes.len());
+    if !st.split.contains_key(&key) {
+        let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| openpub_core::images::split_alpha(&st.images[i].bytes, max))).ok().flatten();
+        st.split.insert(key, made);
+    }
+    st.split.get(&key).and_then(|v| v.as_ref())
 }
 
 fn file_name(path: &Path) -> String {
@@ -571,6 +614,7 @@ fn main() -> wry::Result<()> {
                             st.json = Some(json);
                             st.images = images;
                             st.scaled.clear();
+                            st.split.clear();
                             st.path = Some(path.clone());
                             st.stamp = None;
                             st.dirty = false;
@@ -610,6 +654,7 @@ fn main() -> wry::Result<()> {
                         st.json = Some(json);
                         st.images = images;
                         st.scaled.clear();
+                        st.split.clear();
                         st.stamp = file_stamp(&path);
                         st.path = Some(path.clone());
                         st.dirty = false;
@@ -664,6 +709,7 @@ fn main() -> wry::Result<()> {
                     st.json = Some(blank(width.clamp(36.0, 14400.0), height.clamp(36.0, 14400.0), &name, template.as_deref()));
                     st.images = Vec::new();
                     st.scaled.clear();
+                    st.split.clear();
                     st.path = None;
                     st.stamp = None;
                     st.dirty = false;

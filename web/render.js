@@ -1655,6 +1655,13 @@
       const img = el('img');
       img.src = ctx.imageUrl(shape.image);
       img.draggable = false;
+      // a see-through picture sent to a PDF as a JPEG: its see-through parts come from a mask
+      const mask = ctx.imageMask && ctx.imageMask(shape.image);
+      if (mask) {
+        const m = `url("${mask}") 0 0 / 100% 100% no-repeat`;
+        img.style.webkitMask = m;
+        img.style.mask = m;
+      }
       const c = shape.crop || [0, 0, 0, 0];
       const iw = shape.w / Math.max(0.01, 1 - c[0] - c[2]);
       const ih = shape.h / Math.max(0.01, 1 - c[1] - c[3]);
@@ -2470,6 +2477,8 @@
     wrap.appendChild(pg);
     const ctx = {
       imageUrl: (opts && opts.imageUrl) || ((i) => 'images/' + i),
+      // (the mask of a picture sent as a JPEG, or null)
+      imageMask: (opts && opts.imageMask) || null,
       pageNumber: page.number,
       tabs: [],
       after: [],

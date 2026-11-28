@@ -16,7 +16,8 @@ const check = (name, cond, detail) => {
     await wait(1000);
     T.exportPdf.path = OPENPUB_OUT + 'pdf-y7.pdf';
     T.exportPdf();
-    await wait(300);
+    // (the program is asked first which pictures go as a JPEG and a mask)
+    for (let i = 0; i < 100 && ![...document.querySelectorAll('#pages img')].some((im) => /max=/.test(im.getAttribute('src') || '')); i++) await wait(100);
     // while the PDF is made, the pictures are asked for at the size they are shown
     const srcs = [...document.querySelectorAll('#pages img')].map((i) => i.getAttribute('src') || '');
     const sized = srcs.filter((s) => /[?&]max=\d+/.test(s));

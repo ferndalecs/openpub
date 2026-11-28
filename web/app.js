@@ -39,7 +39,30 @@
   }
   // (while a PDF is made: each picture asked for only as large as it is shown - picturePixels)
   let pdfMax = null;
-  const imageUrl = (i) => 'img/' + i + '?v=' + version + (pdfMax && pdfMax.get(i) ? '&max=' + pdfMax.get(i) : '');
+  // (and the see-through pictures sent as a JPEG with a mask, which a PDF stores far smaller -
+  // see split.json)
+  let pdfSplit = null;
+  const split = (i) => !!(pdfMax && pdfSplit && pdfSplit.has(i) && pdfMax.get(i));
+  const imageUrl = (i) => 'img/' + i + '?v=' + version + (pdfMax && pdfMax.get(i) ? '&max=' + pdfMax.get(i) : '') + (split(i) ? '&part=color' : '');
+  const imageMask = (i) => (split(i) ? 'img/' + i + '?v=' + version + '&max=' + pdfMax.get(i) + '&part=mask' : null);
+  /** Before printing or a PDF: how large each picture is sent, and which go as a JPEG and a mask
+   * (their masks loaded first: a mask still loading when the page is printed would be left out). */
+  async function preparePictures(dpi) {
+    pdfMax = picturePixels(dpi);
+    pdfSplit = null;
+    try {
+      const q = [...pdfMax].filter(([, m]) => m > 0).map(([i, m]) => i + ':' + m).join(',');
+      const list = q ? await (await fetch('split.json?q=' + q)).json() : [];
+      pdfSplit = new Set(Array.isArray(list) ? list : []);
+      await Promise.all([...pdfSplit].map((i) => {
+        const im = new Image();
+        im.src = imageMask(i);
+        return im.decode().catch(() => { pdfSplit.delete(i); });
+      }));
+    } catch (e) {
+      pdfSplit = null;
+    }
+  }
   const k = () => PX * scale; // screen px per point
   const clone = (o) => JSON.parse(JSON.stringify(o));
   const rad = (d) => d * Math.PI / 180;
@@ -82,7 +105,7 @@
     s.clip.textContent = '';
     let wrap;
     try {
-      wrap = OpenPub.renderPage(doc, s.index, { scale, imageUrl, editable: true });
+      wrap = OpenPub.renderPage(doc, s.index, { scale, imageUrl, imageMask, editable: true });
       s.clip.appendChild(wrap);
       wrap.opFinish();
     } catch (e) {
@@ -4673,6 +4696,7 @@
       printRestore = null;
       busy = false;
       pdfMax = null;
+      pdfSplit = null;
       style.remove();
       document.body.classList.toggle('master-mode', masterMode);
       $('spread').checked = prevSpread;
@@ -4702,8 +4726,8 @@
     if (!doc || busy) return;
     // (photos at 300 dpi for the size they're printed, not the camera's: a smaller, quicker job
     // for the printer)
-    pdfMax = picturePixels(PRINT_DPI);
-    preparePrint().then(() => {
+    busy = true;
+    preparePictures(PRINT_DPI).then(preparePrint).then(() => {
       window.addEventListener('afterprint', () => printRestore && printRestore(), { once: true });
       window.print();
     });
@@ -4712,8 +4736,8 @@
     if (!doc || busy) return;
     // a PDF to send or hand in: pictures at 220 dpi for the size they are shown at, not the
     // camera's full size (a booklet of photos was 40 MB)
-    pdfMax = picturePixels(PDF_DPI);
-    preparePrint().then(() => send({ cmd: 'pdf', width: doc.width, height: doc.height, path: exportPdf.path }));
+    busy = true;
+    preparePictures(PDF_DPI).then(preparePrint).then(() => send({ cmd: 'pdf', width: doc.width, height: doc.height, path: exportPdf.path }));
   }
   const PDF_DPI = 220;
   const PRINT_DPI = 300;
@@ -4799,7 +4823,7 @@
         slot.style.width = doc.width * b.k + 'pt';
         slot.style.height = doc.height * b.k + 'pt';
         if (i < doc.pages.length) {
-          const wrap = OpenPub.renderPage(doc, i, { scale: b.k, imageUrl });
+          const wrap = OpenPub.renderPage(doc, i, { scale: b.k, imageUrl, imageMask });
           slot.appendChild(wrap);
           finish.push(wrap);
         }
@@ -4814,6 +4838,7 @@
       printRestore = null;
       busy = false;
       pdfMax = null;
+      pdfSplit = null;
       style.remove();
       box.remove();
       document.body.classList.remove('bookprint');
@@ -4824,16 +4849,16 @@
   }
   function printBooklet() {
     if (!doc || busy) return;
-    pdfMax = picturePixels(PRINT_DPI);
-    prepareBooklet().then(() => {
+    busy = true;
+    preparePictures(PRINT_DPI).then(prepareBooklet).then(() => {
       window.addEventListener('afterprint', () => printRestore && printRestore(), { once: true });
       window.print();
     });
   }
   function exportBookletPdf() {
     if (!doc || busy) return;
-    pdfMax = picturePixels(PDF_DPI);
-    prepareBooklet().then((b) => send({ cmd: 'pdf', width: b.paper[0], height: b.paper[1], path: exportBookletPdf.path }));
+    busy = true;
+    preparePictures(PDF_DPI).then(prepareBooklet).then((b) => send({ cmd: 'pdf', width: b.paper[0], height: b.paper[1], path: exportBookletPdf.path }));
   }
 
   // ---- events ------------------------------------------------------------------------------
@@ -5302,7 +5327,8 @@
       setBorderArt, setBorderSize, docBorders,
       bookletPlan, prepareBooklet, exportBookletPdf, printRestore: () => printRestore && printRestore(),
       // (printing as printAll does it, without the print dialog)
-      preparePrintPictures: () => { pdfMax = picturePixels(PRINT_DPI); return preparePrint(); },
+      preparePrintPictures: () => preparePictures(PRINT_DPI).then(preparePrint),
+      preparePdfPictures: () => preparePictures(PDF_DPI).then(preparePrint), pdfSplit: () => pdfSplit,
       setPattern,
       armTool, cancelTool, tool: () => tool, snapTargets, snap1, showCtx, hideCtx, openSwatches, hideSwatches, setArrows, picturesAdded,
       autosaveNow, docJsonLive, checkUnsaved, setUnsavedSince: (t) => { unsavedSince = t; },

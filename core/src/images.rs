@@ -126,9 +126,113 @@ pub fn fit_turned(bytes: &[u8], max: u32, turn: bool) -> Option<(&'static str, V
     (out.len() < bytes.len()).then_some((mime, out))
 }
 
+/// A picture with see-through parts (a painting cut out from its background, a photo with soft
+/// edges) as two files for a PDF: its colours as an opaque JPEG and its see-through parts as a
+/// mask (a PNG with only transparency), at most `max` pixels on the longer side. A PDF stores a
+/// see-through picture's colours without loss - a watercolour 1600 pixels wide takes 1.4 MB -
+/// but keeps a JPEG as it is, and the page puts the mask back on it (CSS mask-image). None when
+/// the picture has no see-through parts, is a drawing with few colours (sharper as it is), or
+/// the two files wouldn't be clearly smaller than the picture as it would otherwise be sent.
+pub fn split_alpha(bytes: &[u8], max: u32) -> Option<(Vec<u8>, Vec<u8>)> {
+    let format = image::guess_format(bytes).ok()?;
+    if !matches!(format, image::ImageFormat::Png | image::ImageFormat::WebP | image::ImageFormat::Tiff | image::ImageFormat::Gif) || max < 16 {
+        return None;
+    }
+    let img = image::load_from_memory(bytes).ok()?;
+    if !img.color().has_alpha() {
+        return None;
+    }
+    let small = if img.width().max(img.height()) > max { img.resize(max, max, image::imageops::FilterType::CatmullRom) } else { img };
+    let rgba = small.to_rgba8();
+    let (w, h) = rgba.dimensions();
+    if !rgba.pixels().any(|p| p[3] < 255) {
+        return None;
+    }
+    // a photo or a painting: many colours in the parts that show
+    let mut seen = std::collections::HashSet::new();
+    let step = ((w as usize * h as usize) / 20000).max(1);
+    for p in rgba.pixels().step_by(step).filter(|p| p[3] > 0) {
+        seen.insert([p[0], p[1], p[2]]);
+        if seen.len() > 4000 {
+            break;
+        }
+    }
+    if seen.len() <= 4000 {
+        return None;
+    }
+    // the hidden pixels take the colours around them: no hard edge for JPEG to blur into the
+    // parts that show (the average of each 16-pixel square's showing pixels, or of the whole)
+    const CELL: u32 = 16;
+    let (cw, ch) = (w.div_ceil(CELL), h.div_ceil(CELL));
+    let mut sums = vec![[0f64; 4]; (cw * ch) as usize];
+    let mut all = [0f64; 4];
+    for (x, y, p) in rgba.enumerate_pixels() {
+        let a = p[3] as f64;
+        let s = &mut sums[((y / CELL) * cw + x / CELL) as usize];
+        for k in 0..3 {
+            s[k] += p[k] as f64 * a;
+            all[k] += p[k] as f64 * a;
+        }
+        s[3] += a;
+        all[3] += a;
+    }
+    let avg = |s: &[f64; 4]| [(s[0] / s[3]) as u8, (s[1] / s[3]) as u8, (s[2] / s[3]) as u8];
+    let overall = if all[3] > 0.0 { avg(&all) } else { [255, 255, 255] };
+    let rgb = image::RgbImage::from_fn(w, h, |x, y| {
+        let p = rgba.get_pixel(x, y);
+        if p[3] > 0 {
+            return image::Rgb([p[0], p[1], p[2]]);
+        }
+        let s = &sums[((y / CELL) * cw + x / CELL) as usize];
+        image::Rgb(if s[3] > 0.0 { avg(s) } else { overall })
+    });
+    let mut color = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut color, 85).encode_image(&rgb).ok()?;
+    let alpha = image::GrayAlphaImage::from_fn(w, h, |x, y| image::LumaA([0, rgba.get_pixel(x, y)[3]]));
+    let mut mask = Vec::new();
+    image::DynamicImage::ImageLumaA8(alpha).write_to(&mut std::io::Cursor::new(&mut mask), image::ImageFormat::Png).ok()?;
+    // compared with what would be sent otherwise (a PDF stores a PNG's pixels about as large as
+    // the PNG file)
+    let otherwise = fit(bytes, max).map(|(_, b)| b.len()).unwrap_or(bytes.len());
+    ((color.len() + mask.len()) * 10 < otherwise * 7).then_some((color, mask))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn see_through_paintings_split() {
+        // a "painting" (noisy colours) on a see-through background with soft edges
+        let mut seed = 11u32;
+        let painting = image::RgbaImage::from_fn(600, 400, |x, y| {
+            seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
+            let d = ((x as f64 - 300.0).powi(2) + (y as f64 - 200.0).powi(2)).sqrt();
+            let a = (255.0 * (180.0 - d) / 20.0).clamp(0.0, 255.0) as u8;
+            image::Rgba([(x % 200) as u8, (y % 200) as u8, (seed >> 25) as u8 + 60, a])
+        });
+        let png = encode(&image::DynamicImage::ImageRgba8(painting.clone()), image::ImageFormat::Png);
+        let (color, mask) = split_alpha(&png, 300).expect("split");
+        let c = image::load_from_memory(&color).unwrap();
+        let m = image::load_from_memory(&mask).unwrap();
+        assert_eq!(image::guess_format(&color).unwrap(), image::ImageFormat::Jpeg);
+        assert_eq!((c.width(), c.height(), m.width(), m.height()), (300, 200, 300, 200));
+        // the mask keeps the see-through parts: clear in the corner, solid in the middle
+        let m = m.to_luma_alpha8();
+        assert_eq!(m.get_pixel(0, 0)[1], 0);
+        assert_eq!(m.get_pixel(150, 100)[1], 255);
+        // the hidden corner took nearby colours, not black
+        let c = c.to_rgb8();
+        assert!(c.get_pixel(0, 0).0.iter().map(|v| *v as u32).sum::<u32>() > 60, "{:?}", c.get_pixel(0, 0));
+        // nothing see-through, a drawing, a JPEG, not a picture: left alone
+        let opaque = image::RgbaImage::from_fn(300, 200, |x, y| image::Rgba([(x % 256) as u8, (y % 256) as u8, 7, 255]));
+        assert!(split_alpha(&encode(&image::DynamicImage::ImageRgba8(opaque), image::ImageFormat::Png), 300).is_none());
+        let drawing = image::RgbaImage::from_fn(300, 200, |x, _| image::Rgba([200, 0, 0, if x < 100 { 0 } else { 255 }]));
+        assert!(split_alpha(&encode(&image::DynamicImage::ImageRgba8(drawing), image::ImageFormat::Png), 300).is_none());
+        let rgb = image::DynamicImage::ImageRgba8(painting).to_rgb8();
+        assert!(split_alpha(&encode(&image::DynamicImage::ImageRgb8(rgb), image::ImageFormat::Jpeg), 300).is_none());
+        assert!(split_alpha(b"not a picture", 300).is_none());
+    }
 
     fn encode(img: &image::DynamicImage, f: image::ImageFormat) -> Vec<u8> {
         let mut b = Vec::new();
