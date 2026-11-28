@@ -1,4 +1,5 @@
-// Automated checks of picture borders added in the editor and 3-D WordArt (0.3.6). Run inside a
+// Automated checks of picture borders added in the editor, 3-D WordArt (0.3.6) and WordArt
+// gradients and textures (0.3.14). Run inside a
 // debug build on the shapes test file (its first page has 3-D WordArt):
 //   openpub.exe samples/probe/probe-shapes.pub --eval=tools/bordertest.js
 // Prints OK / FAIL lines and a SUMMARY line.
@@ -25,6 +26,20 @@ const check = (name, cond, detail) => {
     const layers = w27 && T.shapeEl(0, w27).querySelectorAll('svg > g').length;
     check('...and drawn with its sides behind the letters', layers >= 2, layers);
     check('flat WordArt stays flat', wa.filter((s) => !s.wordart.extrude).length >= 10);
+
+    // ---- WordArt fills (0.3.14): several colours, from the middle out, textures
+    const byText = (t) => wa.find((s) => s.wordart.text === t);
+    const w15 = byText('WordArt 15');
+    check('a rainbow gradient keeps all its colours', w15 && w15.fill.stops && w15.fill.stops.length >= 5, w15 && w15.fill);
+    const stopsDrawn = w15 && T.shapeEl(0, w15).querySelectorAll('linearGradient stop').length;
+    check('...and draws them', stopsDrawn >= 5, stopsDrawn);
+    const w12 = byText('WordArt 12');
+    check('a "from the centre" gradient is drawn from the middle out', w12 && w12.fill.radial && !!T.shapeEl(0, w12).querySelector('radialGradient'), w12 && w12.fill);
+    const w26 = byText('WordArt 26');
+    check('focus 50 puts the fill colour in the middle', w26 && w26.fill.stops && w26.fill.stops.length === 3 && Math.abs(w26.fill.stops[1][1] - 0.5) < 0.01, w26 && w26.fill);
+    const w14 = byText('WordArt 14');
+    const tex = w14 && T.shapeEl(0, w14).querySelector('pattern image');
+    check('a textured WordArt is filled with its picture', !!tex && !!tex.getAttribute('href'), w14 && w14.fill);
 
     // ---- picture borders
     T.send({ cmd: 'new', width: 595.276, height: 841.89 });

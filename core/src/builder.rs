@@ -104,6 +104,21 @@ fn freeform_path(s: &EShape) -> Option<Path> {
     Some(Path { d, geo })
 }
 
+/// Gradient colours (fill colour at 0, second colour at 1) laid out for a focus (0-1): the fill
+/// colour at the focus, the gradient mirrored on either side of it.
+fn focus_stops(stops: &[(String, f64)], focus: f64) -> Vec<(String, f64)> {
+    if focus <= 0.01 {
+        return stops.to_vec();
+    }
+    // before the focus: from the second colour back to the fill colour
+    let mut out: Vec<(String, f64)> = stops.iter().rev().map(|(c, p)| (c.clone(), (1.0 - p) * focus)).collect();
+    if focus < 0.99 {
+        // after it: from the fill colour to the second colour again
+        out.extend(stops.iter().skip(1).map(|(c, p)| (c.clone(), focus + p * (1.0 - focus))));
+    }
+    out
+}
+
 #[cfg(test)]
 mod freeform_tests {
     use super::*;
@@ -137,6 +152,16 @@ mod freeform_tests {
         let path = freeform_path(&s).unwrap();
         assert_eq!(path.d, "M0 0 C10 0 20 10 20 20 L0 20 Z");
         assert_eq!(path.geo, [0.0, 0.0, 20.0, 20.0]);
+    }
+
+    #[test]
+    fn gradient_focus() {
+        let two = vec![("#000000".to_string(), 0.0), ("#ffffff".to_string(), 1.0)];
+        assert_eq!(focus_stops(&two, 0.0), two);
+        // 100: the other way round
+        assert_eq!(focus_stops(&two, 1.0), vec![("#ffffff".to_string(), 0.0), ("#000000".to_string(), 1.0)]);
+        // 50: second colour, fill colour in the middle, second colour
+        assert_eq!(focus_stops(&two, 0.5), vec![("#ffffff".to_string(), 0.0), ("#000000".to_string(), 0.5), ("#ffffff".to_string(), 1.0)]);
     }
 }
 
@@ -700,12 +725,34 @@ impl<'a> Conv<'a> {
         };
         let mut f = Fill { color, opacity, ..Default::default() };
         if (4..=7).contains(&fill_type) {
-            f.color2 = Some(s.props.get(&0x183).and_then(|v| self.color(*v)).unwrap_or_else(|| "#ffffff".into()));
+            let back = s.props.get(&0x183).and_then(|v| self.color(*v)).unwrap_or_else(|| "#ffffff".into());
             f.angle = s.props.get(&0x18b).map(|v| *v as i32 as f64 / 65536.0).unwrap_or(0.0);
-            // "focus" 100 runs the gradient the other way round
-            if s.props.get(&0x18c).map(|v| (*v as i32).abs() > 75).unwrap_or(false) {
-                let first = std::mem::replace(&mut f.color, f.color2.take().unwrap_or_default());
-                f.color2 = Some(first);
+            // the colours from the fill colour (0) to the second colour (1): two, or a list of
+            // colours and positions (0x197: WordArt's rainbow, chrome and gold styles)
+            let mut stops: Vec<(String, f64)> = s
+                .complex
+                .get(&0x197)
+                .and_then(|b| mso_array(b))
+                .filter(|(cb, _)| *cb == 8)
+                .map(|(_, raw)| {
+                    raw.chunks_exact(8)
+                        .filter_map(|c| Some((self.color(u32::from_le_bytes([c[0], c[1], c[2], c[3]]))?, (i32::from_le_bytes([c[4], c[5], c[6], c[7]]) as f64 / 65536.0).clamp(0.0, 1.0))))
+                        .collect()
+                })
+                .unwrap_or_default();
+            if stops.len() < 2 {
+                stops = vec![(f.color.clone(), 0.0), (back, 1.0)];
+            }
+            // "focus" (percent) is where the fill colour sits: 0 at the start, 100 at the end
+            // (the other way round), 50 in the middle with the second colour at both ends
+            let focus = s.props.get(&0x18c).map(|v| ((*v as i32).abs() as f64 / 100.0).clamp(0.0, 1.0)).unwrap_or(0.0);
+            stops = focus_stops(&stops, focus);
+            // from the middle out (the "from centre" and "from shape" styles)
+            f.radial = fill_type == 5 || fill_type == 6;
+            f.color = stops[0].0.clone();
+            f.color2 = Some(stops[stops.len() - 1].0.clone());
+            if stops.len() > 2 {
+                f.stops = stops;
             }
         } else if fill_type == 3 || fill_type == 2 {
             f.image = s.props.get(&0x186).copied().and_then(|p| self.image(p));

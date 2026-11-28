@@ -81,6 +81,8 @@
   // Vertical metrics of the document's fonts (Document.fonts), set by renderPage. Publisher
   // spaces lines with them; browsers use other tables of the same fonts.
   let FONTS = {};
+  // the page being rendered's picture URLs (opts.imageUrl), for fills painted in SVG
+  let IMAGE_URL = null;
 
   // The ascent and descent the browser lays text out with (measured in the page: canvas
   // metrics don't always agree with CSS layout).
@@ -256,14 +258,18 @@
         o.contentEditable = 'false';
         o.style.width = pt(run.object.w);
         o.style.height = pt(run.object.h);
-        // a table in the text: Publisher leaves about 3.3pt above it and the font's descent below
-        // (Cymru p35, Year 7 booklet p11 and p18)
-        if (run.object.kind === 'table' && run.object.table) {
+        // a table or text box in the text: Publisher leaves about 3.3pt above it and the font's
+        // descent below (tables: Cymru p35, Year 7 booklet p11 and p18; a text box: Cymru p34,
+        // drawn 3pt lower than the line's top, the line ending 2.8pt below it). Pictures sit on
+        // the line's top (Cymru p27, p28).
+        if ((run.object.kind === 'table' && run.object.table) || (run.object.kind === 'text' && run.object.text)) {
           const f = FONTS[run.font];
           // (moved down rather than given a top margin: a taller line box can be placed
           // differently beside shapes the text flows round - Year 7 booklet p18)
-          o.style.top = pt(3.3);
-          o.opShift = 3.3;
+          // (the box of a text box is drawn 3pt down; a table's 3.3pt, half its border lower)
+          const down = run.object.kind === 'text' ? 3 : 3.3;
+          o.style.top = pt(down);
+          o.opShift = down;
           o.style.marginBottom = pt(3.3 + (f ? f.descent : 0.25) * (run.size || 10));
           // pushed below a shape, the line moves down in steps of its font's line height (snapWraps)
           if (!p.spacing_exact) o.opStep = (run.size || 10) * lineEm(run.font, run.bold, run.italic) * Math.max(1, p.spacing || 1);
@@ -1336,14 +1342,35 @@
       svg.appendChild(defs);
       node.setAttribute('fill', `url(#${id})`);
       if (f.opacity < 1) node.setAttribute('fill-opacity', f.opacity);
+    } else if (f && Number.isInteger(f.image) && IMAGE_URL && node.tagName === 'text') {
+      // WordArt filled with a picture or texture (marble, wood...): the picture spread over
+      // the letters (Publisher repeats a texture at its own size; spread is close on lettering)
+      const id = 'opi' + (++gradId);
+      const p = svgEl('pattern', { id, patternContentUnits: 'objectBoundingBox', width: 1, height: 1 });
+      const im = svgEl('image', { width: 1, height: 1, preserveAspectRatio: 'none' });
+      im.setAttribute('href', IMAGE_URL(f.image));
+      p.appendChild(im);
+      const defs = svgEl('defs', {});
+      defs.appendChild(p);
+      svg.appendChild(defs);
+      node.setAttribute('fill', `url(#${id})`);
+      if (f.opacity < 1) node.setAttribute('fill-opacity', f.opacity);
     } else if (f && !f.image) {
       if (f.color2) {
         const id = 'opg' + (++gradId);
-        const a = ((f.angle || 0) - 90) * Math.PI / 180;
-        const dx = Math.cos(a) / 2, dy = Math.sin(a) / 2;
-        const g = svgEl('linearGradient', { id, x1: 0.5 - dx, y1: 0.5 - dy, x2: 0.5 + dx, y2: 0.5 + dy });
-        g.appendChild(svgEl('stop', { offset: 0, 'stop-color': f.color }));
-        g.appendChild(svgEl('stop', { offset: 1, 'stop-color': f.color2 }));
+        // (more than two colours: WordArt's rainbow, chrome and gold styles)
+        const stops = Array.isArray(f.stops) && f.stops.length > 2 ? f.stops : [[f.color, 0], [f.color2, 1]];
+        let g;
+        if (f.radial) {
+          // from the edges (the first colour) in to the middle
+          g = svgEl('radialGradient', { id, cx: 0.5, cy: 0.5, r: 0.5 });
+          for (const [c, at] of [...stops].reverse()) g.appendChild(svgEl('stop', { offset: 1 - at, 'stop-color': c }));
+        } else {
+          const a = ((f.angle || 0) - 90) * Math.PI / 180;
+          const dx = Math.cos(a) / 2, dy = Math.sin(a) / 2;
+          g = svgEl('linearGradient', { id, x1: 0.5 - dx, y1: 0.5 - dy, x2: 0.5 + dx, y2: 0.5 + dy });
+          for (const [c, at] of stops) g.appendChild(svgEl('stop', { offset: at, 'stop-color': c }));
+        }
         const defs = svgEl('defs', {});
         defs.appendChild(g);
         svg.appendChild(defs);
@@ -1895,6 +1922,8 @@
       if (c1 > c.c0) td.colSpan = c1 - c.c0 + 1;
       // the text starts inside the border: Publisher draws borders centred on the grid lines and
       // keeps the text clear of the inner half (Cymru p43: 2.25pt borders, lines break earlier)
+      // (not above and below: rows grown to fit Century Gothic text are about 1pt taller in
+      // Publisher - Year 7 booklet p17 - but adding the borders there makes Cymru p73 worse)
       const bw = (i) => (c.borders[i] ? c.borders[i].width / 2 : 0);
       const m = [c.margins[0] + bw(0), c.margins[1], c.margins[2] + bw(2), c.margins[3]];
       td.style.padding = `${pt(m[1])} ${pt(m[2])} ${pt(m[3])} ${pt(m[0])}`;
@@ -2321,6 +2350,7 @@
       defaultTab: doc.default_tab > 1 ? doc.default_tab : 36,
       pxPerPt: () => scale * 96 / 72,
     };
+    IMAGE_URL = ctx.imageUrl;
     ctx.wraps = computeWraps(page);
     flushViews();
     ctx.chains = chainViews(doc, index, ctx);
@@ -2330,7 +2360,12 @@
     let back = null;
     if (bf && Number.isInteger(bf.image) && ctx.images[bf.image]) back = `url("${ctx.imageUrl(bf.image)}") center / 100% 100% no-repeat`;
     else if (bf && hex(bf.color) && HEX16.test(bf.pattern || '')) back = patternCss(bf);
-    else if (bf && hex(bf.color) && hex(bf.color2)) back = `linear-gradient(${Number(bf.angle) || 0}deg, ${bf.color}, ${bf.color2})`;
+    else if (bf && hex(bf.color) && hex(bf.color2)) {
+      const stops = (Array.isArray(bf.stops) && bf.stops.length > 2 ? bf.stops : [[bf.color, 0], [bf.color2, 1]]).filter(([c]) => hex(c));
+      back = bf.radial
+        ? `radial-gradient(closest-side, ${[...stops].reverse().map(([c, at]) => `${c} ${Math.round((1 - at) * 1000) / 10}%`).join(', ')})`
+        : `linear-gradient(${Number(bf.angle) || 0}deg, ${stops.map(([c, at]) => `${c} ${Math.round(at * 1000) / 10}%`).join(', ')})`;
+    }
     else if (hex(page.background)) back = page.background;
     if (back) {
       const bg = el('div', 'op-pagebg');

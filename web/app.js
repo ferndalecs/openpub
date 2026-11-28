@@ -1680,6 +1680,8 @@
       if (!s.fill || (s.fill.color || '').toLowerCase() === '#ffffff') s.fill = { color: '#1e88e5', opacity: s.fill ? s.fill.opacity : 1 };
       delete s.fill.color2;
       delete s.fill.angle;
+      delete s.fill.stops;
+      delete s.fill.radial;
       s.fill.pattern = bits.toLowerCase();
       s.fill.back = s.fill.back || '#ffffff';
     });
@@ -1688,6 +1690,10 @@
   function setGradient(dir, color2) {
     editShapes((s) => {
       if (!s.fill || s.fill.image != null || s.kind === 'line') return;
+      // (a gradient set here has the two colours chosen: a file's own colour list and
+      // middle-out style go)
+      delete s.fill.stops;
+      delete s.fill.radial;
       if (dir === null) { delete s.fill.color2; delete s.fill.angle; return; }
       delete s.fill.pattern;
       delete s.fill.back;

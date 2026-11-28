@@ -995,15 +995,16 @@ impl<'a> Exporter<'a> {
         if let Some(blend) = crate::model::pattern_blend(f) {
             return format!("<a:solidFill>{}</a:solidFill>", col(&blend));
         }
-        if let Some(c2) = &f.color2 {
+        if f.color2.is_some() {
+            let gs: String = grad_stops(f).iter().map(|(c, at)| format!("<a:gs pos=\"{}\">{}</a:gs>", (at * 100000.0).round() as i64, col(c))).collect();
+            if f.radial {
+                // from the middle out: DrawingML's first stop is the middle
+                let gs: String = grad_stops(f).iter().rev().map(|(c, at)| format!("<a:gs pos=\"{}\">{}</a:gs>", ((1.0 - at) * 100000.0).round() as i64, col(c))).collect();
+                return format!("<a:gradFill rotWithShape=\"1\"><a:gsLst>{gs}</a:gsLst><a:path path=\"circle\"><a:fillToRect l=\"50000\" t=\"50000\" r=\"50000\" b=\"50000\"/></a:path></a:gradFill>");
+            }
             // model: 0 degrees runs bottom to top, clockwise; DrawingML: 0 runs left to right
             let ang = (f.angle - 90.0).rem_euclid(360.0);
-            return format!(
-                "<a:gradFill rotWithShape=\"1\"><a:gsLst><a:gs pos=\"0\">{}</a:gs><a:gs pos=\"100000\">{}</a:gs></a:gsLst><a:lin ang=\"{}\" scaled=\"0\"/></a:gradFill>",
-                col(&f.color),
-                col(c2),
-                (ang * 60000.0).round() as i64
-            );
+            return format!("<a:gradFill rotWithShape=\"1\"><a:gsLst>{gs}</a:gsLst><a:lin ang=\"{}\" scaled=\"0\"/></a:gradFill>", (ang * 60000.0).round() as i64);
         }
         format!("<a:solidFill>{}</a:solidFill>", col(&f.color))
     }
@@ -1966,15 +1967,10 @@ fn w14_effects(fill: Option<&Fill>, line: Option<&Line>, shadow: Option<&Shadow>
     }
     match fill {
         Some(f) => match &f.color2 {
-            Some(c2) if f.image.is_none() => {
+            Some(_) if f.image.is_none() => {
                 let ang = (f.angle - 90.0).rem_euclid(360.0);
-                let _ = write!(
-                    o,
-                    "<w14:textFill><w14:gradFill><w14:gsLst><w14:gs w14:pos=\"0\">{}</w14:gs><w14:gs w14:pos=\"100000\">{}</w14:gs></w14:gsLst><w14:lin w14:ang=\"{}\" w14:scaled=\"0\"/></w14:gradFill></w14:textFill>",
-                    clr(&f.color, f.opacity),
-                    clr(c2, f.opacity),
-                    (ang * 60000.0).round() as i64
-                );
+                let gs: String = grad_stops(f).iter().map(|(c, at)| format!("<w14:gs w14:pos=\"{}\">{}</w14:gs>", (at * 100000.0).round() as i64, clr(c, f.opacity))).collect();
+                let _ = write!(o, "<w14:textFill><w14:gradFill><w14:gsLst>{gs}</w14:gsLst><w14:lin w14:ang=\"{}\" w14:scaled=\"0\"/></w14:gradFill></w14:textFill>", (ang * 60000.0).round() as i64);
             }
             _ => {
                 let _ = write!(o, "<w14:textFill><w14:solidFill>{}</w14:solidFill></w14:textFill>", clr(&f.color, f.opacity));
@@ -2323,6 +2319,14 @@ fn poly(w: f64, h: f64, pts: &[(f64, f64)]) -> String {
     }
     o.push_str("<a:close/></a:path></a:pathLst></a:custGeom>");
     o
+}
+
+/// A gradient's colours and positions (0-1): its own list, or its two colours.
+fn grad_stops(f: &Fill) -> Vec<(String, f64)> {
+    if f.stops.len() > 2 {
+        return f.stops.clone();
+    }
+    vec![(f.color.clone(), 0.0), (f.color2.clone().unwrap_or_else(|| f.color.clone()), 1.0)]
 }
 
 /// Converts an SVG path (absolute M, L, H, V, C, Q, Z commands) to a DrawingML custom geometry.

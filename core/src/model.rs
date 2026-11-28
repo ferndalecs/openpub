@@ -212,11 +212,18 @@ pub struct Fill {
     pub pattern: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub back: Option<String>,
+    /// A gradient of more than two colours: (colour, position 0-1) from the start; `color` and
+    /// `color2` hold the first and last for programs that draw two.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub stops: Vec<(String, f64)>,
+    /// The gradient runs out from the middle (`color` at the edges, `color2` in the middle).
+    #[serde(skip_serializing_if = "is_false")]
+    pub radial: bool,
 }
 
 impl Default for Fill {
     fn default() -> Self {
-        Fill { color: "#ffffff".into(), opacity: 1.0, color2: None, angle: 0.0, image: None, pattern: None, back: None }
+        Fill { color: "#ffffff".into(), opacity: 1.0, color2: None, angle: 0.0, image: None, pattern: None, back: None, stops: Vec::new(), radial: false }
     }
 }
 
