@@ -6,6 +6,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod assoc;
+mod convert;
 mod opub;
 mod pdf;
 mod recent;
@@ -109,7 +110,16 @@ enum UserEvent {
     ExportDocx { doc: String, forced: Option<PathBuf> },
     ExportPdf { width: f64, height: f64, forced: Option<PathBuf> },
     Quit,
-    PdfDone(Result<PathBuf, String>),
+    PdfDone { target: PathBuf, result: Result<(), String> },
+    /// Convert a folder of Publisher files in another OpenPub (File > Open > Convert a folder).
+    /// (`forced`: a test's folder and output folder, instead of asking.)
+    ConvertFolder { to: convert::Format, forced: Option<(PathBuf, Option<PathBuf>)> },
+    /// That conversion has finished: its log, and its exit code.
+    ConvertFinished { log: Option<PathBuf>, code: i32 },
+    /// Converting to PDF: the file `n` of the list has taken too long.
+    ConvertTimeout(usize),
+    /// Converting to PDF: the page couldn't make the PDF of the file it was given.
+    ConvertError(String),
     AddPicture,
     /// A picture the person chose has been read (or couldn't be).
     PictureReady(Result<(Image, u32, u32), String>),
@@ -304,10 +314,55 @@ fn js_string(s: &str) -> String {
     serde_json::to_string(s).unwrap()
 }
 
+/// A conversion to PDF under way in a hidden window (see convert.rs).
+struct PdfJob {
+    items: Vec<convert::Item>,
+    /// How many of `items` have been started.
+    next: usize,
+    /// The file being converted.
+    current: Option<convert::Item>,
+    log: convert::Log,
+}
+
+/// How long one publication may take to become a PDF before it's given up on.
+const PDF_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// Starts on the next file of a PDF conversion, or ends the program when all are done.
+fn next_pdf(job: &mut PdfJob, proxy: &EventLoopProxy<UserEvent>) {
+    let Some(item) = job.items.get(job.next).cloned() else {
+        std::process::exit(job.log.finish());
+    };
+    job.next += 1;
+    job.current = Some(item.clone());
+    let n = job.next;
+    let watch = proxy.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(PDF_TIMEOUT);
+        let _ = watch.send_event(UserEvent::ConvertTimeout(n));
+    });
+    let _ = proxy.send_event(UserEvent::Open { path: item.src, asked: true });
+}
+
 fn main() -> wry::Result<()> {
     let mut initial: Option<PathBuf> = None;
     let mut test_script: Option<String> = None;
-    for arg in std::env::args_os().skip(1) {
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    // converting many files at once (no window, or a hidden one for PDFs)
+    let mut job: Option<PdfJob> = match convert::parse(&args) {
+        None => None,
+        Some(Err(e)) => std::process::exit(convert::bad_command(&e)),
+        Some(Ok(o)) => {
+            let plan = convert::plan(&o).unwrap_or_else(|e| std::process::exit(convert::bad_command(&e)));
+            if o.to != convert::Format::Pdf || plan.items.is_empty() {
+                std::process::exit(convert::run_windowless(&o, &plan));
+            }
+            let mut log = convert::Log::open(&plan.base);
+            log.start(&o, &plan);
+            Some(PdfJob { items: plan.items, next: 0, current: None, log })
+        }
+    };
+    let converting = job.is_some();
+    for arg in if converting { Vec::new() } else { args } {
         match arg.to_str() {
             Some("--register") => {
                 std::process::exit(if assoc::register().is_ok() { 0 } else { 1 });
@@ -346,6 +401,11 @@ fn main() -> wry::Result<()> {
         }
         builder = builder.with_focused(false);
     }
+    // (a conversion to PDF draws its pages in a window nobody sees)
+    if converting {
+        builder = builder.with_visible(false).with_focused(false);
+    }
+    let quiet = quiet || converting;
     let window = builder.build(&event_loop).expect("window");
 
     // WebView2 keeps its working files (cache, settings) in a folder: by default next to the
@@ -372,7 +432,12 @@ fn main() -> wry::Result<()> {
         Ok(w) => w,
         Err(e) => {
             // most likely the Microsoft Edge WebView2 Runtime is missing or damaged: say so, rather
-            // than closing without a word (a test run only reports it)
+            // than closing without a word (a test run only reports it; a conversion logs it)
+            if let Some(j) = &mut job {
+                j.log.line(&format!("  NOT CONVERTED    (any of the {} files): OpenPub couldn't start the Microsoft Edge WebView2 Runtime it draws pages with ({e})", j.items.len()));
+                j.log.failed += j.items.len();
+                std::process::exit(j.log.finish());
+            }
             if !testing {
                 rfd::MessageDialog::new()
                     .set_title("OpenPub")
@@ -493,6 +558,48 @@ fn main() -> wry::Result<()> {
                     let result = std::panic::catch_unwind(|| load(&path)).unwrap_or_else(|_| Err("the file is damaged or isn't a publication OpenPub can read".into()));
                     let _ = proxy.send_event(UserEvent::Loaded { path, result });
                 });
+            }
+            // converting to PDF: the file is shown in the hidden window, then printed to PDF
+            Event::UserEvent(UserEvent::Loaded { path, result }) if job.is_some() => {
+                let Some(j) = &mut job else { return };
+                let Some(item) = j.current.clone().filter(|it| it.src == path) else { return };
+                match result {
+                    Ok((json, images)) => {
+                        {
+                            let mut st = state.lock().unwrap();
+                            st.name = file_name(&path);
+                            st.json = Some(json);
+                            st.images = images;
+                            st.scaled.clear();
+                            st.path = Some(path.clone());
+                            st.stamp = None;
+                            st.dirty = false;
+                        }
+                        let _ = webview.evaluate_script("OpenPubApp.reload().then(() => OpenPubApp.convertPdf())");
+                    }
+                    Err(e) => {
+                        j.log.done(&item, &Err(e));
+                        j.current = None;
+                        next_pdf(j, &proxy);
+                    }
+                }
+            }
+            Event::UserEvent(UserEvent::ConvertTimeout(n)) => {
+                let Some(j) = &mut job else { return };
+                if j.next != n {
+                    return;
+                }
+                let Some(item) = j.current.take() else { return };
+                j.log.done(&item, &Err(format!("making the PDF took more than {} minutes, so it was given up on", PDF_TIMEOUT.as_secs() / 60)));
+                let _ = webview.evaluate_script("window.OpenPubApp && OpenPubApp.printDone('')");
+                next_pdf(j, &proxy);
+            }
+            Event::UserEvent(UserEvent::ConvertError(e)) => {
+                let Some(j) = &mut job else { return };
+                let Some(item) = j.current.take() else { return };
+                j.log.done(&item, &Err(e));
+                let _ = webview.evaluate_script("window.OpenPubApp && OpenPubApp.printDone('')");
+                next_pdf(j, &proxy);
             }
             Event::UserEvent(UserEvent::Loaded { path, result }) => match result {
                 Ok((json, images)) => {
@@ -687,6 +794,12 @@ fn main() -> wry::Result<()> {
                 }
             }
             Event::UserEvent(UserEvent::Ready) => {
+                if let Some(j) = &mut job {
+                    if j.next == 0 {
+                        next_pdf(j, &proxy);
+                    }
+                    return;
+                }
                 // work left over from a window that closed unexpectedly (when no file was named:
                 // a named file's own copy is offered when it opens)
                 if initial_given || state.lock().unwrap().testing {
@@ -718,24 +831,109 @@ fn main() -> wry::Result<()> {
                 }
             }
             Event::UserEvent(UserEvent::ExportPdf { width, height, forced }) => {
-                let Some(target) = forced.or_else(|| export_target(&state, &window, "Export as PDF", "PDF files", "pdf")) else {
+                // (converting: the PDF goes where the conversion says, never where the page says)
+                let target = match &job {
+                    Some(j) => j.current.as_ref().map(|it| it.dest.clone()),
+                    None => forced.or_else(|| export_target(&state, &window, "Export as PDF", "PDF files", "pdf")),
+                };
+                let Some(target) = target else {
                     let _ = webview.evaluate_script("window.OpenPubApp && OpenPubApp.printDone('')");
                     return;
                 };
+                if job.is_some() {
+                    if let Err(e) = convert::make_folder(&target) {
+                        let _ = proxy.send_event(UserEvent::PdfDone { target, result: Err(e) });
+                        return;
+                    }
+                }
                 let done = proxy.clone();
                 let out = target.clone();
                 if let Err(e) = pdf::print_to_pdf(&webview, &target, width, height, move |ok| {
-                    let _ = done.send_event(UserEvent::PdfDone(if ok { Ok(out) } else { Err("the PDF couldn't be written".into()) }));
+                    let _ = done.send_event(UserEvent::PdfDone { target: out, result: if ok { Ok(()) } else { Err("the PDF couldn't be written".into()) } });
                 }) {
-                    let _ = proxy.send_event(UserEvent::PdfDone(Err(e)));
+                    let _ = proxy.send_event(UserEvent::PdfDone { target, result: Err(e) });
                 }
             }
-            Event::UserEvent(UserEvent::PdfDone(result)) => {
+            Event::UserEvent(UserEvent::PdfDone { target, result }) => {
+                if let Some(j) = &mut job {
+                    // (a PDF finished after its file was given up on is ignored)
+                    let Some(item) = j.current.take_if(|it| it.dest == target) else { return };
+                    j.log.done(&item, &result);
+                    let _ = webview.evaluate_script("window.OpenPubApp && OpenPubApp.printDone('')");
+                    next_pdf(j, &proxy);
+                    return;
+                }
                 let msg = match result {
-                    Ok(p) => format!("Exported {}", file_name(&p)),
+                    Ok(()) => format!("Exported {}", file_name(&target)),
                     Err(e) => format!("Couldn't export: {e}"),
                 };
                 let _ = webview.evaluate_script(&format!("window.OpenPubApp && OpenPubApp.printDone({})", js_string(&msg)));
+            }
+            Event::UserEvent(UserEvent::ConvertFolder { to, forced }) => {
+                let picked = forced.or_else(|| {
+                    rfd::FileDialog::new()
+                        .set_title(format!("Choose a folder of Publisher files to convert to {}", to.name()))
+                        .set_parent(&window)
+                        .pick_folder()
+                        .map(|f| (f, None))
+                });
+                let Some((source, mut out)) = picked else { return };
+                // a folder that can't be written to (a read-only share): the files go somewhere else
+                if out.is_none() && !recent::writable(&source) {
+                    let Some(o) = rfd::FileDialog::new().set_title("That folder can't be changed - choose where to put the converted files").set_parent(&window).pick_folder() else { return };
+                    out = Some(o);
+                }
+                let opts = convert::Options { source: source.clone(), to, out: out.clone(), overwrite: false };
+                let plan = match convert::plan(&opts) {
+                    Ok(p) => p,
+                    Err(e) => return error(&webview, &format!("Couldn't convert: {e}")),
+                };
+                if plan.items.is_empty() {
+                    let msg = if plan.existing.is_empty() {
+                        format!("There are no Publisher (.pub) files in {} or the folders inside it.", source.display())
+                    } else {
+                        format!("Every Publisher file in {} has already been converted to {} (the .{} files are there). Nothing was changed.", source.display(), to.name(), to.ext())
+                    };
+                    return note(&webview, &msg);
+                }
+                let Ok(exe) = std::env::current_exe() else { return error(&webview, "Couldn't start the conversion.") };
+                let mut cmd = std::process::Command::new(exe);
+                cmd.arg("--convert").arg(&source).arg("--to").arg(to.ext());
+                if let Some(o) = &out {
+                    cmd.arg("--out").arg(o);
+                }
+                #[cfg(windows)]
+                {
+                    // (no console window, even for a development build)
+                    use std::os::windows::process::CommandExt;
+                    cmd.creation_flags(0x0800_0000);
+                }
+                let log = convert::log_path(&plan.base);
+                match cmd.spawn() {
+                    Ok(mut child) => {
+                        let n = plan.items.len();
+                        let where_to = match &out {
+                            Some(o) => format!("in {}", o.display()),
+                            None => "next to the Publisher files".into(),
+                        };
+                        note(&webview, &format!("Converting {} to {}. You can carry on working: the new files are saved {where_to}.", if n == 1 { "1 Publisher file".to_string() } else { format!("{n} Publisher files") }, to.name()));
+                        let proxy = proxy.clone();
+                        std::thread::spawn(move || {
+                            let code = child.wait().ok().and_then(|s| s.code()).unwrap_or(1);
+                            let _ = proxy.send_event(UserEvent::ConvertFinished { log, code });
+                        });
+                    }
+                    Err(e) => error(&webview, &format!("Couldn't start the conversion: {e}")),
+                }
+            }
+            Event::UserEvent(UserEvent::ConvertFinished { log, code }) => {
+                let summary = log.as_deref().and_then(convert::last_summary).unwrap_or_else(|| if code == 0 { "The conversion has finished.".into() } else { "The conversion has finished, but not every file could be converted.".into() });
+                let list = log.as_deref().map(|l| format!(" The list of what was done is in {}.", l.display())).unwrap_or_default();
+                // (left up for longer: it may come while the person is busy with something else)
+                let _ = webview.evaluate_script(&format!("window.OpenPubApp && OpenPubApp.note({}, 30000)", js_string(&format!("{summary}.{list}"))));
+                if testing {
+                    println!("[convert] finished {code}: {summary}");
+                }
             }
             Event::UserEvent(UserEvent::AddPicture) => {
                 let picked = rfd::FileDialog::new().set_title("Add a picture").add_filter("Pictures", &["png", "jpg", "jpeg", "gif", "bmp", "tif", "tiff"]).set_parent(&window).pick_file();
@@ -1080,6 +1278,13 @@ fn on_message(body: &str, state: &Mutex<State>, proxy: &EventLoopProxy<UserEvent
             return;
         }
         Some("quit") if cfg!(debug_assertions) => UserEvent::Quit,
+        // the folder is always chosen in the program's own window (a test names it instead)
+        Some("convertFolder") => {
+            let Some(to) = msg["to"].as_str().and_then(convert::Format::parse) else { return };
+            let forced = if cfg!(debug_assertions) { msg["path"].as_str().map(|p| (PathBuf::from(p), msg["out"].as_str().map(PathBuf::from))) } else { None };
+            UserEvent::ConvertFolder { to, forced }
+        }
+        Some("convertError") => UserEvent::ConvertError(msg["text"].as_str().unwrap_or("the publication couldn't be shown").chars().take(300).collect()),
         Some("addPicture") => UserEvent::AddPicture,
         Some("associate") => UserEvent::Associate,
         // the answer to the first-run question

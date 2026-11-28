@@ -108,6 +108,23 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
   Word document) and print (pictures sent at 300 dpi for the size they're printed, not the
   camera's size) - every page, or as a folded booklet (pages two to a
   side in folding order, on A4 for pages bigger than A5; also as a PDF booklet).
+* **Convert many files at once**: File > Open > Convert a whole folder turns every Publisher file
+  in a folder and its subfolders into PDFs, Word documents or `.opub` files, saved next to the
+  originals (which aren't changed); files already converted are skipped, and the work carries on
+  in the background. For IT, the same from a script:
+
+  ```
+  openpub.exe --convert <folder or .pub file> --to pdf|docx|opub [--out <folder>] [--overwrite]
+  ```
+
+  `--out` puts the new files in another folder, with the same subfolders; existing files are only
+  replaced with `--overwrite`. Each file gets a line (converted, not converted and why, already
+  there) in `openpub-convert.log` in the output folder; the exit code is 0 when everything was
+  converted, 1 when some files couldn't be, 2 for a mistake in the command. OpenPub is a Windows
+  program, so wait for it to finish: `start /wait openpub.exe --convert …` in a batch file,
+  `Start-Process openpub.exe -ArgumentList … -Wait -PassThru` in PowerShell. Word and `.opub`
+  conversion needs no window; PDFs are drawn by OpenPub in a hidden window (about 8 seconds for
+  an 83-page textbook), so run PDF conversions as a logged-on user rather than as SYSTEM.
 * **File association**: the installers register OpenPub for `.pub` and `.opub`; File > Options
   does the same for the current user. `openpub.exe --register` / `--unregister` do it from a
   script.
@@ -154,8 +171,9 @@ OpenPub opens files other people made, so it treats them as untrusted:
 * WebView2 keeps its working files in `%LOCALAPPDATA%\OpenPub\WebView2`, the recent-files list
   and settings in `%LOCALAPPDATA%\OpenPub` - or, on an account whose profile can't be written to
   (a broken or redirected profile), in `%TEMP%\OpenPub` (the recovery copies too). Apart from
-  the recovery copies described above, the program writes nowhere else unless asked to save or
-  export.
+  the recovery copies described above, the program writes nowhere else unless asked to save,
+  export or convert. A conversion writes only the converted files and its log, in the folders it
+  was given; the page never chooses where.
 * `python tools/fuzz.py [runs] [seed] [slug,slug]` damages copies of sample files in thousands
   of ways and checks the reader never crashes or hangs on them (by default the smaller samples
   and the shapes probe; name samples to include the large ones). The reader's unit tests feed

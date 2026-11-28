@@ -4854,6 +4854,8 @@
   on('printbook', () => { hideFile(); printBooklet(); });
   on('pdfbook', () => { hideFile(); exportBookletPdf(); });
   on('assoc', () => send({ cmd: 'associate' }));
+  // (the folder is chosen in a Windows folder window; the files are made by another OpenPub in the background)
+  for (const to of ['pdf', 'docx', 'opub']) on('conv' + to, () => send({ cmd: 'convertFolder', to }));
   on('filebtn', () => showFile(doc ? 'info' : 'open'));
   on('fileback', hideFile);
   on('helpbtn', () => showFile('help'));
@@ -5242,7 +5244,7 @@
     picturesAdded,
     imagesAdded,
     error: (msg) => showNotes([msg]),
-    note: (msg) => showNotes([msg], 6000),
+    note: (msg, ms) => showNotes([msg], ms || 6000),
     saved: (name, path) => {
       if (doc) { doc.name = name; if (path) doc.path = path; }
       dirty = true; // force the title refresh below
@@ -5252,6 +5254,17 @@
     printDone: (msg) => {
       if (printRestore) printRestore();
       if (msg) showNotes([msg], 6000);
+    },
+    /** Converting a folder to PDF (a hidden window): the publication just loaded, as a PDF. */
+    convertPdf: async () => {
+      try {
+        if (!doc) throw new Error('the publication has no pages OpenPub can show');
+        if (document.fonts && document.fonts.ready) await document.fonts.ready;
+        if (printRestore) printRestore();
+        exportPdf();
+      } catch (e) {
+        send({ cmd: 'convertError', text: String((e && e.message) || e) });
+      }
     },
     pictureAdded: (index, w, h) => {
       if (!doc) return;

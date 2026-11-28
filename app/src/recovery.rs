@@ -236,8 +236,8 @@ pub fn now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
-/// "14:32 today", "14:32 on 26/11/2026" (local time).
-pub fn when(time: u64) -> String {
+/// A time (seconds since 1970) in local time: (year, month, day, hour, minute, second).
+pub fn local(time: u64) -> Option<(u16, u16, u16, u16, u16, u16)> {
     #[cfg(windows)]
     {
         use windows_sys::Win32::Foundation::{FILETIME, SYSTEMTIME};
@@ -246,17 +246,22 @@ pub fn when(time: u64) -> String {
         let f = FILETIME { dwLowDateTime: ft as u32, dwHighDateTime: (ft >> 32) as u32 };
         let mut utc: SYSTEMTIME = unsafe { std::mem::zeroed() };
         let mut loc: SYSTEMTIME = unsafe { std::mem::zeroed() };
-        let tft = (now() + 11_644_473_600) * 10_000_000;
-        let tf = FILETIME { dwLowDateTime: tft as u32, dwHighDateTime: (tft >> 32) as u32 };
-        let mut tutc: SYSTEMTIME = unsafe { std::mem::zeroed() };
-        let mut tloc: SYSTEMTIME = unsafe { std::mem::zeroed() };
         unsafe {
-            if FileTimeToSystemTime(&f, &mut utc) != 0 && SystemTimeToTzSpecificLocalTime(std::ptr::null(), &utc, &mut loc) != 0 && FileTimeToSystemTime(&tf, &mut tutc) != 0 && SystemTimeToTzSpecificLocalTime(std::ptr::null(), &tutc, &mut tloc) != 0 {
-                let same_day = loc.wYear == tloc.wYear && loc.wMonth == tloc.wMonth && loc.wDay == tloc.wDay;
-                return if same_day { format!("{:02}:{:02} today", loc.wHour, loc.wMinute) } else { format!("{:02}:{:02} on {:02}/{:02}/{}", loc.wHour, loc.wMinute, loc.wDay, loc.wMonth, loc.wYear) };
+            if FileTimeToSystemTime(&f, &mut utc) != 0 && SystemTimeToTzSpecificLocalTime(std::ptr::null(), &utc, &mut loc) != 0 {
+                return Some((loc.wYear, loc.wMonth, loc.wDay, loc.wHour, loc.wMinute, loc.wSecond));
             }
         }
     }
     let _ = time;
-    "an earlier time".into()
+    None
+}
+
+/// "14:32 today", "14:32 on 26/11/2026" (local time).
+pub fn when(time: u64) -> String {
+    match (local(time), local(now())) {
+        (Some((y, mo, d, h, mi, _)), Some((ty, tmo, td, ..))) => {
+            if (y, mo, d) == (ty, tmo, td) { format!("{h:02}:{mi:02} today") } else { format!("{h:02}:{mi:02} on {d:02}/{mo:02}/{y}") }
+        }
+        _ => "an earlier time".into(),
+    }
 }

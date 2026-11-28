@@ -135,6 +135,30 @@ $v = (Get-ItemProperty 'HKLM:\SOFTWARE\OpenPub' -ErrorAction SilentlyContinue).V
 if ($v -and [version]$v -ge [version]'0.1.0') { 'Installed' }
 ```
 
+## Converting a share of Publisher files
+
+Once installed, OpenPub can convert a whole folder (with its subfolders) in one go - for example
+a department's worksheets, before Publisher is removed:
+
+```powershell
+$p = Start-Process "C:\Program Files\OpenPub\openpub.exe" -ArgumentList '--convert "S:\Staff\Science" --to docx --out "S:\Staff\Science (converted)"' -Wait -PassThru
+$p.ExitCode   # 0 all converted, 1 some couldn't be, 2 the command was wrong
+```
+
+- `--to pdf`, `--to docx` (Word) or `--to opub` (OpenPub, to keep editing). Without `--out` the
+  new files go next to the originals. The `.pub` files are never changed.
+- Files already converted are left alone, so a run can be repeated (or stopped and started
+  again); `--overwrite` replaces them.
+- `openpub-convert.log` in the output folder lists every file: converted, not converted (with the
+  reason) or already there. A command that couldn't be understood is logged in
+  `%LOCALAPPDATA%\OpenPub\openpub-convert.log`.
+- In a batch file use `start "" /wait "C:\Program Files\OpenPub\openpub.exe" --convert …`:
+  OpenPub is a Windows program, so without `/wait` the batch file doesn't wait for it.
+- Word and `.opub` need no window and should work in any context. **PDF** uses OpenPub's own page
+  drawing (WebView2) in a hidden window: run it as a logged-on user (a scheduled task "run only
+  when the user is logged on", or by hand), not as SYSTEM - that hasn't been tested.
+- Teachers can do the same from File > Open > Convert a whole folder.
+
 ## Recovery copies (what OpenPub writes on its own)
 
 While a publication has unsaved changes, OpenPub writes a recovery copy every 30 seconds so work
