@@ -573,8 +573,25 @@
     return ['', `wr${box}nfewr${box}l${X(0)},${Y(0)}nsxe`, '', '', 'r'];
   }
 
+  // A freeform's own outline (core/src/builder.rs freeform_path): an SVG path of M, L, C and Z
+  // in the box `geo`, scaled to the shape. (Office fills an open freeform as if closed.)
+  function freeform(shape) {
+    const p = shape.path;
+    const [x0, y0, x1, y1] = p.geo;
+    const sx = (shape.w || 0) / (x1 - x0 || 1), sy = (shape.h || 0) / (y1 - y0 || 1);
+    let xy = 0;
+    const d = p.d.replace(/[MLCZ]|-?[\d.]+(?:e-?\d+)?/gi, (t) => {
+      if (/^[MLCZ]$/i.test(t)) return t;
+      const v = xy++ % 2 === 0 ? (parseFloat(t) - x0) * sx : (parseFloat(t) - y0) * sy;
+      return fmt(v);
+    });
+    if (!/[ML]/.test(d)) return null;
+    return { paths: [{ d, fill: true, stroke: true }], join: 'round' };
+  }
+
   root.OpenPubGeometry = function (shape) {
     if (!shape) return null;
+    if (shape.path && shape.path.d && Array.isArray(shape.path.geo)) return freeform(shape);
     const type = shape.shape_type;
     const def = type === 19 ? arcDefinition(shape) : definition(type);
     if (!def) return null;

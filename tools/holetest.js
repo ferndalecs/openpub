@@ -1,5 +1,6 @@
 // Automated check of text carried on past shapes in the middle of a line: spaces that hang at a
-// shape's edge, tabs counted from where the text resumes, and an empty line kept beside a table.
+// shape's edge, tabs counted from where the text resumes, and an empty line kept beside a table;
+// also freeform outlines (page 79) and no hyphenation in Welsh text (page 34).
 // Run inside a debug build on the Cymru textbook (page 50 is a form with boxes in its lines):
 //   openpub.exe "samples/Cymru Textbook (1) 9 and 10.pub" --eval=tools/holetest.js
 const T = OpenPubApp.test;
@@ -87,5 +88,25 @@ const done = () => { log(`SUMMARY ${okN} OK, ${failN} FAIL`); window.ipc.postMes
   check('Undo restores it', textOf(again.text) === before);
   const f3 = findFlow();
   check('with the empty line kept again', f3 && f3.querySelectorAll('.op-kept').length === 1);
+
+  // page 79: a freeform (a wavy line drawn with the curve tool) is drawn as its own outline
+  T.goTo(78);
+  await wait(1500);
+  const free = T.doc().pages[78].shapes.find((s) => s.shape_type === 0 && s.path);
+  check('a freeform keeps its outline from the file', !!free && /C/.test(free.path.d), free && free.path);
+  const freeEl = free && [...T.sheets()[78].el.querySelectorAll('.op-shape')].find((e) => e.opShape === free);
+  const outline = freeEl && [...freeEl.querySelectorAll('path')].map((p) => p.getAttribute('d')).join(' ');
+  check('and is drawn with curves, not as a box', !!outline && /C/.test(outline) && !/^M0 0L/.test(outline), outline && outline.slice(0, 60));
+
+  // page 34: its text is marked Welsh, which Publisher never breaks inside a word
+  T.goTo(33);
+  await wait(1500);
+  const welsh = [...T.sheets()[33].el.querySelectorAll('.op-flow')].find((f) => /Margot/.test(plain(f)));
+  check('Welsh text is not hyphenated', !!welsh && !welsh.textContent.includes('­'), welsh && (welsh.textContent.match(/­/g) || []).length);
+  // (and English text still is: page 42's long text is marked English (UK))
+  T.goTo(41);
+  await wait(1500);
+  const eng = [...T.sheets()[41].el.querySelectorAll('.op-flow')].sort((a, b) => b.textContent.length - a.textContent.length)[0];
+  check('English text still is', !!eng && eng.textContent.includes('­'));
   done();
 })().catch((e) => { check('no error', false, String(e && e.stack || e)); done(); });

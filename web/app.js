@@ -1218,10 +1218,11 @@
     if (r.scale) o.scale = r.scale;
     if (r.kerning) o.kerning = r.kerning;
     if (r.field) o.field = r.field;
+    if (r.lang) o.lang = r.lang;
     if (r.object) o.object = r.object;
     return o;
   }
-  const sameStyle = (a, b) => a.font === b.font && a.size === b.size && !!a.bold === !!b.bold && !!a.italic === !!b.italic && !!a.underline === !!b.underline && a.color === b.color && (a.script || 0) === (b.script || 0) && !!a.strike === !!b.strike && (a.effect || 0) === (b.effect || 0) && (a.caps || 0) === (b.caps || 0) && (a.tracking || 0) === (b.tracking || 0) && (a.kerning || 0) === (b.kerning || 0) && (a.scale || 0) === (b.scale || 0);
+  const sameStyle = (a, b) => a.font === b.font && a.size === b.size && !!a.bold === !!b.bold && !!a.italic === !!b.italic && !!a.underline === !!b.underline && a.color === b.color && (a.script || 0) === (b.script || 0) && !!a.strike === !!b.strike && (a.effect || 0) === (b.effect || 0) && (a.caps || 0) === (b.caps || 0) && (a.tracking || 0) === (b.tracking || 0) && (a.kerning || 0) === (b.kerning || 0) && (a.scale || 0) === (b.scale || 0) && (a.lang || 0) === (b.lang || 0);
 
   /** Reads the runs of one paragraph element (or a fragment of one). */
   function readRuns(node, fallback) {

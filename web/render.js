@@ -213,7 +213,7 @@
 
   // Editing support: formatting is kept on the elements so edited text can be read back.
   function runKey(run) {
-    return JSON.stringify({ font: run.font, size: run.size, bold: !!run.bold, italic: !!run.italic, underline: !!run.underline, color: run.color, script: run.script || 0, strike: !!run.strike, effect: run.effect || 0, caps: run.caps || 0, tracking: run.tracking || 0, kerning: run.kerning || 0, scale: run.scale || 0 });
+    return JSON.stringify({ font: run.font, size: run.size, bold: !!run.bold, italic: !!run.italic, underline: !!run.underline, color: run.color, script: run.script || 0, strike: !!run.strike, effect: run.effect || 0, caps: run.caps || 0, tracking: run.tracking || 0, kerning: run.kerning || 0, scale: run.scale || 0, lang: run.lang || 0 });
   }
   function paraKey(p) {
     const o = Object.assign({}, p);
@@ -306,7 +306,10 @@
         } else if (run.scale > 0 && Math.abs(run.scale - 1) > 0.005 && !run.field) {
           scaledText(span, symbolText(part, run.font), run);
         } else {
-          span.textContent = run.field === 'page' ? String(ctx.pageNumber) : (ctx.noHyphen ? symbolText(part, run.font) : hyphenate(symbolText(part, run.font), run.font));
+          // Publisher hyphenates English text only: text marked as another language (Welsh in
+          // the Cymru textbook, pages 34, 36, 37, 57) is never broken inside a word
+          const english = !run.lang || (run.lang & 0x3ff) === 0x09;
+          span.textContent = run.field === 'page' ? String(ctx.pageNumber) : (ctx.noHyphen || !english ? symbolText(part, run.font) : hyphenate(symbolText(part, run.font), run.font));
         }
         d.appendChild(span);
         any = true;
@@ -1256,9 +1259,11 @@
     }
     box.style.padding = `${pt(m[1])} ${pt(m[2])} ${pt(m[3])} ${pt(m[0])}`;
     box.style.justifyContent = body.valign === 'middle' ? 'center' : body.valign === 'bottom' ? 'flex-end' : 'flex-start';
+    // (kept and put back: a frame inside this text - an inline text box - sets its own)
+    const noHyphen = ctx.noHyphen;
     ctx.noHyphen = !!frame && frame.w < 30;
     const flow = renderFlow(body.paras, ctx);
-    ctx.noHyphen = false;
+    ctx.noHyphen = noHyphen;
     flow.opOwner = owner;
     if (ctx.editable && frame && frame.kind === 'text' && !owner.chain && body.paras.every((p) => p.runs.every((r) => !r.object && !/\S/.test(r.text)))) flow.classList.add('op-blank');
     // Centring and bottom alignment leave out the extra line spacing under the last line
@@ -1902,9 +1907,10 @@
       const inner = el('div', 'op-cell');
       let cellW = -m[0] - m[2];
       for (let k = c.c0; k <= c1; k++) cellW += t.cols[k];
+      const noHyphen = ctx.noHyphen;
       ctx.noHyphen = cellW < 30;
       const cellFlow = renderFlow(c.paras, ctx);
-      ctx.noHyphen = false;
+      ctx.noHyphen = noHyphen;
       cellFlow.opOwner = c;
       inner.appendChild(cellFlow);
       // the extra line spacing under the last line (see the row heights below)

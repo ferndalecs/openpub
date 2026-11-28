@@ -9,6 +9,137 @@ fn emu(v: u32) -> f64 {
     v as i32 as f64 / PT
 }
 
+/// The elements of an Escher array property (IMsoArray: count, allocated count, element size,
+/// then the elements). An element size of 0xFFF0 means 4 bytes.
+fn mso_array(b: &[u8]) -> Option<(usize, &[u8])> {
+    if b.len() < 6 {
+        return None;
+    }
+    let n = u16::from_le_bytes([b[0], b[1]]) as usize;
+    let cb = match u16::from_le_bytes([b[4], b[5]]) {
+        0xfff0 => 4,
+        v => v as usize,
+    };
+    if cb == 0 || 6 + n.checked_mul(cb)? > b.len() {
+        return None;
+    }
+    Some((cb, &b[6..6 + n * cb]))
+}
+
+/// A freeform outline (vertices 0x145, segments 0x146, drawn in the box 0x140-0x143) as an SVG
+/// path in that box. Segments: line to, curve to (3 points), move to, close, end, escapes (their
+/// points are skipped). Without segments the points are joined by lines.
+fn freeform_path(s: &EShape) -> Option<Path> {
+    let (cb, raw) = mso_array(s.complex.get(&0x145)?)?;
+    let pts: Vec<(f64, f64)> = match cb {
+        8 => raw.chunks_exact(8).map(|c| (i32::from_le_bytes([c[0], c[1], c[2], c[3]]) as f64, i32::from_le_bytes([c[4], c[5], c[6], c[7]]) as f64)).collect(),
+        4 => raw.chunks_exact(4).map(|c| (i16::from_le_bytes([c[0], c[1]]) as f64, i16::from_le_bytes([c[2], c[3]]) as f64)).collect(),
+        _ => return None,
+    };
+    if pts.len() < 2 {
+        return None;
+    }
+    let geo_v = |id: u16, d: i32| s.props.get(&id).map(|v| *v as i32).unwrap_or(d) as f64;
+    let geo = [geo_v(0x140, 0), geo_v(0x141, 0), geo_v(0x142, 21600), geo_v(0x143, 21600)];
+    if !(geo[2] > geo[0] && geo[3] > geo[1]) {
+        return None;
+    }
+    let segs: Option<Vec<u16>> = s.complex.get(&0x146).and_then(|b| mso_array(b)).and_then(|(cb, raw)| (cb == 2).then(|| raw.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect()));
+    let mut d = String::new();
+    let mut i = 0;
+    let mut open = false;
+    let put = |d: &mut String, cmd: char, p: &[(f64, f64)]| {
+        d.push(cmd);
+        for (x, y) in p {
+            d.push_str(&format!("{} {} ", x, y));
+        }
+    };
+    match segs {
+        Some(segs) if !segs.is_empty() => {
+            for v in segs {
+                let kind = v >> 13;
+                let n = (v & 0x1fff).max(1) as usize;
+                match kind {
+                    0 | 1 => {
+                        let per = if kind == 0 { 1 } else { 3 };
+                        for _ in 0..n {
+                            if i + per > pts.len() {
+                                break;
+                            }
+                            if !open {
+                                // (a path that doesn't start with a move starts at its last point)
+                                put(&mut d, 'M', &pts[i.saturating_sub(1)..i.max(1)]);
+                                open = true;
+                            }
+                            put(&mut d, if kind == 0 { 'L' } else { 'C' }, &pts[i..i + per]);
+                            i += per;
+                        }
+                    }
+                    2 => {
+                        if i < pts.len() {
+                            put(&mut d, 'M', &pts[i..i + 1]);
+                            i += 1;
+                            open = true;
+                        }
+                    }
+                    3 => {
+                        if open {
+                            d.push('Z');
+                        }
+                    }
+                    4 => open = false,
+                    _ => i += (v & 0xff) as usize, // escapes: their points aren't drawn
+                }
+            }
+        }
+        _ => {
+            put(&mut d, 'M', &pts[..1]);
+            put(&mut d, 'L', &pts[1..]);
+        }
+    }
+    let d = d.trim().to_string();
+    if d.len() < 3 {
+        return None;
+    }
+    Some(Path { d, geo })
+}
+
+#[cfg(test)]
+mod freeform_tests {
+    use super::*;
+
+    fn array(cb: u16, items: &[u8]) -> Vec<u8> {
+        let n = (items.len() / cb as usize) as u16;
+        let mut v = Vec::new();
+        for x in [n, n, cb] {
+            v.extend_from_slice(&x.to_le_bytes());
+        }
+        v.extend_from_slice(items);
+        v
+    }
+
+    #[test]
+    fn move_curve_line_close() {
+        let mut s = EShape::default();
+        let mut p = Vec::new();
+        for (x, y) in [(0i32, 0i32), (10, 0), (20, 10), (20, 20), (0, 20)] {
+            p.extend_from_slice(&x.to_le_bytes());
+            p.extend_from_slice(&y.to_le_bytes());
+        }
+        s.complex.insert(0x145, array(8, &p));
+        let mut g = Vec::new();
+        for v in [0x4000u16, 0x2001, 0x0001, 0x6001, 0x8000] {
+            g.extend_from_slice(&v.to_le_bytes());
+        }
+        s.complex.insert(0x146, array(2, &g));
+        s.props.insert(0x142, 20);
+        s.props.insert(0x143, 20);
+        let path = freeform_path(&s).unwrap();
+        assert_eq!(path.d, "M0 0 C10 0 20 10 20 20 L0 20 Z");
+        assert_eq!(path.geo, [0.0, 0.0, 20.0, 20.0]);
+    }
+}
+
 struct TableInfo {
     col_w: Vec<f64>,
     row_h: Vec<f64>,
@@ -301,6 +432,7 @@ impl TextCtx<'_> {
                         _ => 0.0,
                     },
                     field: if rp.field == Some(5) { Some("page".into()) } else { None },
+                    lang: rp.lang.filter(|l| *l > 0 && *l < 0x10000).unwrap_or(0),
                     object: None,
                     inline,
                 };
@@ -913,6 +1045,10 @@ impl<'a> Conv<'a> {
             if crop.iter().any(|c| *c != 0.0) {
                 sh.crop = Some(crop);
             }
+        }
+        // a freeform (drawn with the freeform, curve or scribble tool): its own outline
+        if s.shape_type == 0 && sh.image.is_none() {
+            sh.path = freeform_path(s);
         }
         for id in 0x147u16..=0x150 {
             sh.adjust.push(s.props.get(&id).map(|v| *v as i32));

@@ -558,6 +558,8 @@ struct RunProps {
     scale: Option<u32>,
     /// field type of the character (5 = page number)
     field: Option<u32>,
+    /// language (Windows language number: 0x809 English (UK), 0x452 Welsh)
+    lang: Option<u32>,
 }
 
 #[derive(Default, Clone)]
@@ -609,6 +611,7 @@ fn run_props(bs: &[Block]) -> RunProps {
             (0x1b, BVal::Int(v)) => r.kerning = Some(*v as i32),
             (0x20, BVal::Int(v)) => r.scale = Some(*v),
             (0x00, BVal::Int(v)) => r.field = Some(*v),
+            (0x12, BVal::Int(v)) => r.lang = Some(*v),
             (0x24, BVal::List(l)) => {
                 // one font per script; entry 0 is the Latin font. Entry 1 almost always holds the
                 // same font, and Publisher uses it when entry 0 is missing (Cymru p43: an "8" in
@@ -701,6 +704,7 @@ impl RunProps {
             kerning: self.kerning.or(base.kerning),
             scale: self.scale.or(base.scale),
             field: self.field,
+            lang: self.lang.or(base.lang),
         }
     }
 }

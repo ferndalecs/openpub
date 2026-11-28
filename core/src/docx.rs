@@ -1780,6 +1780,19 @@ fn rpr(r: &Run, hide: bool) -> String {
         2 => o.push_str("<w:vertAlign w:val=\"subscript\"/>"),
         _ => {}
     }
+    // the language, for Word's spelling and hyphenation (Welsh text isn't hyphenated)
+    let lang = match r.lang {
+        0x452 => "cy-GB",
+        0x809 => "en-GB",
+        0x409 => "en-US",
+        0x40c => "fr-FR",
+        0xc0a | 0x40a => "es-ES",
+        0x407 => "de-DE",
+        _ => "",
+    };
+    if !lang.is_empty() {
+        let _ = write!(o, "<w:lang w:val=\"{lang}\"/>");
+    }
     o.push_str("</w:rPr>");
     o
 }

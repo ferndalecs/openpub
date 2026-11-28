@@ -413,6 +413,10 @@ pub struct Run {
     /// "page" for a page-number field
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field: Option<String>,
+    /// The text's language as a Windows language number (2057 English (UK), 1106 Welsh);
+    /// 0 = not stored.
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub lang: u32,
     /// A shape (table, picture, ...) that sits in the line like a character.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub object: Option<Box<Shape>>,

@@ -179,7 +179,7 @@ setup, `tools/extratest.js` for WordArt, effects, links, table styles, picture a
 the page picture and the designs, `tools/wraptest.js` for editing text that flows round a
 shape, `tools/safetytest.js` for not losing unsaved work, `tools/linktest.js` for linked text boxes
 and text positions, `tools/texttest.js` for the font and size lists, WordArt typed on the page and
-text that doesn't fit). `tools/booktest.js` covers pattern fills and booklets; `tools/bordertest.js` picture borders and 3-D WordArt; `tools/gaptest.js` the marker on turned boxes, PDF links and pictures in shapes in Word; `tools/holetest.js` (on the Cymru textbook) text carried on past boxes in the middle of a line. `tools/helptest.js` covers the help page, the table grid, the designs (all their text must
+text that doesn't fit). `tools/booktest.js` covers pattern fills and booklets; `tools/bordertest.js` picture borders and 3-D WordArt; `tools/gaptest.js` the marker on turned boxes, PDF links and pictures in shapes in Word; `tools/holetest.js` (on the Cymru textbook) text carried on past boxes in the middle of a line, freeform shapes and unhyphenated Welsh text. `tools/helptest.js` covers the help page, the table grid, the designs (all their text must
 fit), the page sizes and the tooltips. `tools/drawtest.js` covers drawing with the mouse, snapping,
 the right-click menu, colour swatches, arrowheads and pictures by paste and drop.
 `tools/rectest.ps1` checks recovery copies: a window is killed mid-work
@@ -206,9 +206,10 @@ feature samples to Word, opens each in Word and compares them with Publisher's p
     from a distance.
   * Strikethrough, small caps, all caps, outline, emboss, engrave, tracking, kerning and
     character width scaling are drawn (scaled words aren't hyphenated).
-  * Hyphenation uses English (UK) patterns for all text, so line breaks in other languages
-    (e.g. Welsh) can differ from Publisher's; in English too, Publisher's own hyphenation
-    sometimes breaks a word elsewhere.
+  * Hyphenation uses English (UK) patterns. Text marked as another language (e.g. Welsh) isn't
+    hyphenated, as in Publisher, but Welsh text marked as English is, so its line breaks can
+    differ from Publisher's; in English too, Publisher's own hyphenation sometimes breaks a word
+    elsewhere.
   * A text line that has to move below a shape is moved down in steps of its line height, as
     Publisher does; a table in the text can still land a point or two away from where
     Publisher puts it.
