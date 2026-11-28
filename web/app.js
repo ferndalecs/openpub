@@ -886,6 +886,14 @@
     const sheetEl = e.target.closest('.sheet');
     if (!sheetEl || !sheetEl.opSheet) { select(0, null); return; }
     const page = sheetEl.opSheet.index;
+    if (tool && tool.kind === 'link') {
+      e.preventDefault();
+      if (current !== page) setCurrent(page, true);
+      const hit = e.target.closest('.op-shape');
+      const why = linkTo(page, hit && hit.opShape ? hit.opShape : null, sheetPoint(sheetEl, e.clientX, e.clientY));
+      if (why) showNotes([why], 6000);
+      return;
+    }
     if (tool) {
       e.preventDefault();
       commitEdit();
@@ -2248,6 +2256,120 @@
   }
 
 
+  // ---- linked text boxes -------------------------------------------------------------------------
+  // Text can carry on from one box into others (a newsletter article continued on page 4): the
+  // boxes share a story (text.story), the first holds its paragraphs and the others have
+  // text.chain 1, 2, ... and no paragraphs of their own - as Publisher's files have them.
+
+  /** The linked boxes `sh` is one of, in order, as { shape, page } (null if it isn't linked). */
+  function chainOf(sh) {
+    const story = sh && sh.text && sh.text.story;
+    return (story && OpenPub.storyChains(doc).get(story)) || null;
+  }
+  /** A text box that can take part in linking (not a table, WordArt, or a shape's own text). */
+  const linkable = (sh) => !!sh && !!sh.text && sh.kind === 'text' && !sh.wordart;
+  /** Whether a box's text body has no text in it. */
+  const emptyText = (t) => !t || !t.paras || t.paras.every((p) => p.runs.every((r) => !r.object && !/\S/.test(String(r.text || '').replace(/[­⁠]/g, ''))));
+  /** The selected box, if text can be linked on from it (it isn't followed by another already). */
+  function linkSource() {
+    if (!sel || sel.shapes.length !== 1 || !linkable(sel.shape)) return null;
+    const c = chainOf(sel.shape);
+    if (c && c[c.length - 1].shape !== sel.shape) return null;
+    return { page: sel.page, shape: sel.shape };
+  }
+  /** "Link to text box": the next click on an empty text box (or on an empty part of a page, for
+   * a new box) carries the selected box's text on into it. */
+  function armLink() {
+    const from = linkSource();
+    if (!from) return;
+    commitEdit();
+    closeMenus();
+    cancelTool();
+    tool = { kind: 'link', from };
+    document.body.classList.add('drawing', 'linking');
+    $('toolhint').firstChild.textContent = 'Click an empty text box to carry the text on into it (on any page), or click an empty part of a page for a new box.';
+    $('toolhint').hidden = false;
+    updateSelInfo('Linking a text box – Esc to cancel');
+  }
+  /** The click that chooses where the text goes on (`target`: a shape clicked, or null; `p`: the
+   * point on page `page`). Returns a reason it can't be done, or '' when done. */
+  function linkTo(page, target, p) {
+    const from = tool && tool.kind === 'link' ? tool.from : null;
+    cancelTool();
+    if (!from || !doc.pages[from.page] || !doc.pages[from.page].shapes.includes(from.shape)) return 'The box to link from has gone.';
+    if (target === from.shape) return "That's the box the text comes from: click another text box.";
+    const inPage = (list) => list.some((s) => s === target || (s.children && inPage(s.children)));
+    if (target && !inPage(doc.pages[page].shapes)) return 'That box is on the master page: choose a text box on the page itself.';
+    if (target && !linkable(target)) return 'Text can only carry on into a text box.';
+    if (target && chainOf(target)) return 'That text box is already linked to others. Choose an empty one that isn\'t, or break its link first (Text Box > Break link).';
+    if (target && !emptyText(target.text)) return 'That text box already has text in it. Text can only carry on into an empty box.';
+    pushUndo(null);
+    const src = from.shape;
+    // a new box where the page was clicked: as wide as the one the text comes from
+    if (!target) {
+      const w = Math.min(src.w, doc.width), h = Math.min(src.h, Math.max(36, doc.height - p.y));
+      target = { kind: 'text', shape_type: 202, seq: nextSeq++, x: Math.max(0, Math.min(p.x, doc.width - w)), y: Math.max(0, Math.min(p.y, doc.height - h)), w, h, text: newTextBody() };
+      insertShapes(page, [target]);
+    }
+    const chain = chainOf(src);
+    let story = src.text.story;
+    // (a box with a story number of its own keeps it; new boxes all have 0)
+    if (!chain) {
+      const used = story ? countStory(story) : 0;
+      if (!story || used > 1) story = freshStory();
+      src.text.story = story;
+      delete src.text.chain;
+    }
+    const last = chain ? Math.max(...chain.map((f) => f.shape.text.chain || 0)) : 0;
+    const t = target.text || newTextBody();
+    target.text = Object.assign({}, t, { story, chain: last + 1, paras: [] });
+    const pages = new Set([from.page, page, ...(chain || []).map((f) => f.page)]);
+    for (const i of pages) redraw(i);
+    rerender(page);
+    goTo(page);
+    select(page, target);
+    return '';
+  }
+  /** How many text bodies in the publication have story number `id`. */
+  function countStory(id) {
+    let n = 0;
+    const walk = (list) => { for (const s of list) { if (s.text && s.text.story === id) n++; if (s.children) walk(s.children); } };
+    doc.pages.forEach((pg) => walk(pg.shapes));
+    return n;
+  }
+  /** "Break link": the text stops flowing on after the selected box; the boxes after it become
+   * empty boxes of their own, and the text they showed goes back into the boxes before (as
+   * Publisher does: it then doesn't fit, and shows the red marker). */
+  function breakLink() {
+    if (!sel || sel.shapes.length !== 1) return;
+    const c = chainOf(sel.shape);
+    const at = c ? c.findIndex((f) => f.shape === sel.shape) : -1;
+    if (at < 0 || at === c.length - 1) return;
+    commitEdit();
+    pushUndo(null);
+    for (const f of c.slice(at + 1)) {
+      f.shape.text = Object.assign({}, f.shape.text, { story: freshStory(), paras: newTextBody().paras });
+      delete f.shape.text.chain;
+    }
+    // (one box left: an ordinary text box again)
+    if (at === 0) delete sel.shape.text.chain;
+    for (const i of new Set(c.map((f) => f.page))) redraw(i);
+    rerender(sel.page);
+    showSel();
+    syncToolbar();
+  }
+  /** The box before or after the selected one in its chain (`step` -1 / 1), shown and selected. */
+  function stepLinked(step) {
+    if (!sel || sel.shapes.length !== 1) return;
+    const c = chainOf(sel.shape);
+    const at = c ? c.findIndex((f) => f.shape === sel.shape) : -1;
+    const f = at >= 0 && c[at + step];
+    if (!f) return;
+    commitEdit();
+    goTo(f.page);
+    select(f.page, f.shape);
+  }
+
   // ---- drawing new boxes, shapes and lines with the mouse -----------------------------------------
   // A tool is chosen with a button; then a click on the page puts the thing there at its usual
   // size, or a drag draws it at the size wanted. Esc (or Cancel) puts the tool down.
@@ -2267,7 +2389,7 @@
   function cancelTool() {
     if (!tool) return false;
     tool = null;
-    document.body.classList.remove('drawing');
+    document.body.classList.remove('drawing', 'linking');
     $('toolhint').hidden = true;
     updateSelInfo();
     return true;
@@ -3232,6 +3354,13 @@
     en(['gw', 'gh'], s && n === 1);
     en(['ml', 'mt', 'mr', 'mb', 'vt', 'vm', 'vb', 'ncols', 'colgap'], s && lv.some((x) => x.text));
     en(['fitbox', 'fittext'], s && !busy && fitTargets().length > 0);
+    {
+      const c = s && n === 1 ? chainOf(sel.shape) : null;
+      const at = c ? c.findIndex((f) => f.shape === sel.shape) : -1;
+      en(['linkbox'], s && !busy && !!linkSource());
+      en(['unlinkbox', 'nextbox'], s && !busy && at >= 0 && at < c.length - 1);
+      en(['prevbox'], s && !busy && at > 0);
+    }
     en(['waedit'], s && n === 1 && !!sel.shape.wordart);
     const ts = selTable();
     const cs = !!ts && !!cellSel && cellSel.shape === ts;
@@ -4911,6 +5040,10 @@
   on('savebarsave', () => { $('savebar').hidden = true; save(false); });
   on('savebarx', () => { $('savebar').hidden = true; remindAfter += 10 * 60000; });
   on('fittext', shrinkTextToFit);
+  on('linkbox', armLink);
+  on('unlinkbox', breakLink);
+  on('prevbox', () => stepLinked(-1));
+  on('nextbox', () => stepLinked(1));
   onChange('wastyle', (v) => setWordArt(null, parseInt(v, 10)));
   onChange('graddir', (v) => setGradient(v === '' ? null : parseFloat(v)));
   onChange('pattern', (v) => setPattern(v));
@@ -5333,6 +5466,7 @@
       armTool, cancelTool, tool: () => tool, snapTargets, snap1, showCtx, hideCtx, openSwatches, hideSwatches, setArrows, picturesAdded,
       autosaveNow, docJsonLive, checkUnsaved, setUnsavedSince: (t) => { unsavedSince = t; },
       editWordArt, endWordArt, fitBoxToText, shrinkTextToFit, overflowing, openPick, closePick, applyPick,
+      armLink, linkTo, breakLink, stepLinked, chainOf, linkSource,
       pickRows: () => pick.rows.map((d) => d.dataset.v), systemFonts: () => systemFonts, loadSystemFonts,
     },
   };

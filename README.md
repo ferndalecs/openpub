@@ -69,7 +69,10 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
     steps, bold/italic/underline,
     strikethrough, superscript/subscript, colour, alignment, bullets and numbering, indents,
     line and paragraph spacing; text-box margins, vertical alignment and columns. A red marker
-    shows a box whose text doesn't all fit; Make box fit text and Shrink text to fit fix it.
+    shows a box whose text doesn't all fit; Make box fit text and Shrink text to fit fix it, or
+    Link to text box carries the text on into another box (an empty one on any page, or a new
+    one where the page is clicked) as Publisher's linked boxes do; Break link and the arrows
+    between linked boxes too.
   * Find & Replace (Ctrl+F / Ctrl+H) across the whole publication, with Match case, Replace and
     Replace All (one undo step).
   * Shapes and pictures: a gallery of about 60 shapes (basic shapes, block arrows, flowchart,
