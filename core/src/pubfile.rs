@@ -947,12 +947,32 @@ struct Streams {
 }
 
 fn read_streams(path: &std::path::Path) -> Result<Streams, String> {
+    // The compound file is read in 512-byte sectors: from memory that takes milliseconds, from the
+    // disk (or a network drive) one request per sector - a second or more for a 30 MB publication.
+    // (Very large files are still read from the disk, not loaded whole.)
+    let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    if size <= 512 * 1024 * 1024 {
+        let bytes = std::fs::read(path).map_err(|e| format!("Couldn't open the file: {e}"))?;
+        return streams_of(std::io::Cursor::new(bytes));
+    }
     let file = std::fs::File::open(path).map_err(|e| format!("Couldn't open the file: {e}"))?;
+    streams_of(std::io::BufReader::new(file))
+}
+
+fn streams_of<F: std::io::Read + std::io::Seek>(file: F) -> Result<Streams, String> {
     let mut comp = cfb::CompoundFile::open(file).map_err(|_| "This file isn't a Publisher document (it isn't an OLE compound file).".to_string())?;
     let mut read = |name: &str| -> Vec<u8> {
         let mut buf = Vec::new();
         if let Ok(mut s) = comp.open_stream(name) {
-            let _ = s.read_to_end(&mut buf);
+            let len = s.len() as usize;
+            if len <= 512 * 1024 * 1024 {
+                buf = vec![0u8; len];
+                if s.read_exact(&mut buf).is_err() {
+                    buf.clear();
+                }
+            } else {
+                let _ = s.read_to_end(&mut buf);
+            }
         }
         buf
     };

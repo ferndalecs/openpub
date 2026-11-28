@@ -154,6 +154,41 @@ mod freeform_tests {
         assert_eq!(path.geo, [0.0, 0.0, 20.0, 20.0]);
     }
 
+    /// Damaged outlines (any bytes, sizes and counts) give a path or nothing - no crash, and
+    /// never more drawing than the points they hold.
+    #[test]
+    fn damaged_freeforms() {
+        let mut seed: u64 = 0x2026_1128;
+        let mut next = || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed >> 33) as u32
+        };
+        for _ in 0..4000 {
+            let mut s = EShape::default();
+            for id in [0x145u16, 0x146] {
+                let len = (next() % 200) as usize;
+                let mut b: Vec<u8> = (0..len).map(|_| next() as u8).collect();
+                if b.len() >= 6 && next() % 2 == 0 {
+                    // a plausible header with a random count and element size
+                    let n = (next() % 70000) as u16;
+                    let cb = [2u16, 4, 8, 0xfff0, 0, 3, 0xffff][(next() % 7) as usize];
+                    b[0..2].copy_from_slice(&n.to_le_bytes());
+                    b[4..6].copy_from_slice(&cb.to_le_bytes());
+                }
+                s.complex.insert(id, b);
+            }
+            for id in 0x140u16..=0x143 {
+                if next() % 3 == 0 {
+                    s.props.insert(id, next());
+                }
+            }
+            if let Some(p) = freeform_path(&s) {
+                assert!(p.d.len() < 200 * 40, "path too long: {}", p.d.len());
+                assert!(p.geo[2] > p.geo[0] && p.geo[3] > p.geo[1]);
+            }
+        }
+    }
+
     #[test]
     fn gradient_focus() {
         let two = vec![("#000000".to_string(), 0.0), ("#ffffff".to_string(), 1.0)];

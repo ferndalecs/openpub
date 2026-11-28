@@ -2,19 +2,22 @@
 checks that the reader either opens them or reports an error - no crash (panic), no hang, no
 runaway memory.
 
-python tools/fuzz.py [runs per sample, default 150] [seed]
+python tools/fuzz.py [runs per sample, default 150] [seed] [slug,slug,...]
 
 Uses target/debug/pubdump.exe (cargo build -p openpub-core first). Files that made the reader
-crash or hang are kept in out/fuzz/ for investigation.
+crash or hang are kept in out/fuzz/ for investigation. Without a list of samples it takes the
+smaller ones and the shapes probe (WordArt gradients, textures, transparent pictures).
 """
 import pathlib, random, shutil, subprocess, sys, time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'tools'))
 from samples import samples  # noqa: E402
+import quiet  # noqa: E402,F401  (pubdump starts without a console window)
 
 runs = int(sys.argv[1]) if len(sys.argv) > 1 else 150
 seed = int(sys.argv[2]) if len(sys.argv) > 2 else 20261115
+only = sys.argv[3].split(',') if len(sys.argv) > 3 else None
 rng = random.Random(seed)
 exe = ROOT / 'target' / 'debug' / 'pubdump.exe'
 out = ROOT / 'out' / 'fuzz'
@@ -23,7 +26,11 @@ work = out / 'case.pub'
 TIMEOUT = 40
 
 # the smaller samples: quick to read, so many cases can be tried
-picked = [(slug, pathlib.Path(p)) for slug, p in samples() if pathlib.Path(p).stat().st_size < 3_000_000][:6]
+if only:
+    picked = [(slug, pathlib.Path(p)) for slug, p in samples() if slug in only]
+else:
+    picked = [(slug, pathlib.Path(p)) for slug, p in samples() if pathlib.Path(p).stat().st_size < 3_000_000][:6]
+    picked += [(slug, pathlib.Path(p)) for slug, p in samples() if slug == 'probe-shapes' and slug not in [s for s, _ in picked]]
 
 
 def damage(data: bytearray) -> str:

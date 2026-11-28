@@ -1,14 +1,13 @@
 [package]
 name = "openpub-core"
-version = "0.3.15"
+version = "0.3.16"
 edition = "2024"
 description = "Reads Microsoft Publisher .pub files into a renderable document model"
 license = "MIT"
 repository = "https://github.com/ferndalecs/openpub"
 
 [dependencies]
-base64 = "0.22"
-cfb = "0.10"
+cfb = "0.16"
 flate2 = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "tiff"] }
 serde = { version = "1", features = ["derive"] }

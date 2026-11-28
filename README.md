@@ -142,8 +142,10 @@ OpenPub opens files other people made, so it treats them as untrusted:
 * WebView2 keeps its working files in `%LOCALAPPDATA%\OpenPub\WebView2`, the recent-files list
   and settings in `%LOCALAPPDATA%\OpenPub`. Apart from the recovery copies described above,
   the program writes nowhere else unless asked to save or export.
-* `python tools/fuzz.py` damages copies of sample files in thousands of ways and checks the
-  reader never crashes or hangs on them.
+* `python tools/fuzz.py [runs] [seed] [slug,slug]` damages copies of sample files in thousands
+  of ways and checks the reader never crashes or hangs on them (by default the smaller samples
+  and the shapes probe; name samples to include the large ones). The reader's unit tests feed
+  damaged freeform outlines to it directly.
 * `cargo audit` checks the Rust dependencies against the RustSec advisory database;
   `tools/sectest.js` checks the page's restrictions against a hostile file made by
   `tools/make-hostile-opub.py`.
