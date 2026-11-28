@@ -101,7 +101,8 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
   PDF), a PNG picture of a page, to a Word document (`.docx`:
   editable text boxes - linked where Publisher links them -, real Word numbering, tables,
   pictures with their adjustments, Office shapes, WordArt as Word text effects, shadows, links
-  on objects, page backgrounds) and print - every page, or as a folded booklet (pages two to a
+  on objects, page backgrounds; pictures sized like the PDF's: the same booklet gives a 1.4 MB
+  Word document) and print - every page, or as a folded booklet (pages two to a
   side in folding order, on A4 for pages bigger than A5; also as a PDF booklet).
 * **File association**: the installers register OpenPub for `.pub` and `.opub`; File > Options
   does the same for the current user. `openpub.exe --register` / `--unregister` do it from a

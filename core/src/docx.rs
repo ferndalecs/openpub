@@ -108,10 +108,22 @@ pub fn export_docx(doc: &Document, path: &std::path::Path) -> Result<(), String>
     }
     document.push_str("</w:sectPr></w:body></w:document>");
 
-    // pictures that are actually used, with their file extension
+    // pictures that are actually used, with their file extension; each no larger than it needs to
+    // be for the largest size it is shown at (220 dpi: a booklet of camera photos was 30 MB),
+    // photos as JPEG. Its pixels as stored, as Publisher shows them (no EXIF turn).
+    let need = crate::images::picture_pixels(doc, 220.0);
+    let mut smaller: std::collections::HashMap<usize, (&'static str, Vec<u8>)> = std::collections::HashMap::new();
     let mut media: Vec<(usize, &'static str)> = Vec::new();
     for (i, img) in doc.images.iter().enumerate() {
         if ex.used[i] {
+            if need[i] > 0 {
+                if let Some((mime, bytes)) = crate::images::fit_turned(&img.bytes, need[i], false) {
+                    let e = if mime == "image/jpeg" { "jpg" } else { "png" };
+                    smaller.insert(i, (e, bytes));
+                    media.push((i, e));
+                    continue;
+                }
+            }
             media.push((i, image_ext(&img.mime, &img.bytes)));
         }
     }
@@ -204,7 +216,9 @@ pub fn export_docx(doc: &Document, path: &std::path::Path) -> Result<(), String>
         let opt = if matches!(*e, "png" | "jpg" | "gif") { stored } else { deflate };
         zw.start_file(format!("word/media/image{i}.{e}"), opt).map_err(err)?;
         let img = &doc.images[*i];
-        if img.orientation > 1 && *e == "jpg" {
+        if let Some((_, bytes)) = smaller.get(i) {
+            zw.write_all(bytes).map_err(ioerr)?;
+        } else if img.orientation > 1 && *e == "jpg" {
             // Publisher shows a photo's pixels as stored: drop the EXIF turn other programs apply
             zw.write_all(&upright_jpeg(&img.bytes)).map_err(ioerr)?;
         } else {

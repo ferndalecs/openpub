@@ -57,13 +57,19 @@ pub fn jpeg_orientation(b: &[u8]) -> u8 {
     1
 }
 
-/// A smaller copy of a picture, at most `max` pixels on its longer side, for a PDF: a photo
-/// shown a few centimetres wide doesn't need its camera's 4000 pixels, and a photo saved as PNG
-/// is much smaller as JPEG. The copy is turned the way its EXIF orientation says (as a browser
-/// shows it; the copy has no EXIF), and stored as JPEG for photos, PNG for drawings and pictures
-/// with see-through parts. None when the picture will do as it is, can't be decoded, or the copy
-/// wouldn't be clearly smaller.
+/// A smaller copy of a picture, at most `max` pixels on its longer side, for a PDF or a Word
+/// document: a photo shown a few centimetres wide doesn't need its camera's 4000 pixels, and a
+/// photo saved as PNG is much smaller as JPEG. Stored as JPEG for photos, PNG for drawings and
+/// pictures with see-through parts; the copy has no EXIF: with `turn` its pixels are turned the
+/// way the EXIF orientation says (as a browser shows it), without, they stay as stored (as
+/// Publisher shows them). None when the picture will do as it is, can't be decoded, or the copy
+/// wouldn't be smaller.
 pub fn fit(bytes: &[u8], max: u32) -> Option<(&'static str, Vec<u8>)> {
+    fit_turned(bytes, max, true)
+}
+
+/// [`fit`], choosing whether the EXIF orientation is applied to the pixels.
+pub fn fit_turned(bytes: &[u8], max: u32, turn: bool) -> Option<(&'static str, Vec<u8>)> {
     if max < 16 {
         return None;
     }
@@ -74,7 +80,7 @@ pub fn fit(bytes: &[u8], max: u32) -> Option<(&'static str, Vec<u8>)> {
     if !shrink && format == image::ImageFormat::Jpeg {
         return None;
     }
-    if format == image::ImageFormat::Jpeg {
+    if turn && format == image::ImageFormat::Jpeg {
         img = match jpeg_orientation(bytes) {
             2 => img.fliph(),
             3 => img.rotate180(),
@@ -164,6 +170,30 @@ mod tests {
     }
 
     #[test]
+    fn pixels_each_picture_needs() {
+        use crate::model::{Document, Image, Page, Shape};
+        let pic = |i: usize, w: f64, h: f64, crop: Option<[f64; 4]>| Shape { kind: "picture".into(), image: Some(i), w, h, crop, ..Default::default() };
+        let doc = Document {
+            width: 595.0,
+            height: 842.0,
+            images: vec![Image::default(), Image::default(), Image::default()],
+            pages: vec![Page {
+                shapes: vec![
+                    // 1 inch wide, half of it cropped away: the whole picture is 2 inches
+                    pic(0, 72.0, 36.0, Some([0.25, 0.0, 0.25, 0.0])),
+                    // shown twice: the larger counts
+                    pic(1, 36.0, 36.0, None),
+                    pic(1, 144.0, 72.0, None),
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        // (picture 2 isn't shown: 0)
+        assert_eq!(picture_pixels(&doc, 220.0), vec![440, 440, 0]);
+    }
+
+    #[test]
     fn turned_photos_stay_turned() {
         // a 400 x 200 JPEG whose EXIF says "turn a quarter right" (6): a browser shows it 200 x 400
         let mut seed = 3u32;
@@ -184,7 +214,67 @@ mod tests {
         let back = image::load_from_memory(&small).unwrap();
         assert_eq!((back.width(), back.height()), (50, 100));
         assert_eq!(jpeg_orientation(&small), 1);
+        // for Word: the pixels as stored (Publisher doesn't turn photos), still without EXIF
+        let (_, stored) = fit_turned(&with, 100, false).unwrap();
+        let back = image::load_from_memory(&stored).unwrap();
+        assert_eq!((back.width(), back.height()), (100, 50));
+        assert_eq!(jpeg_orientation(&stored), 1);
     }
+}
+
+/// For each picture of a document, the most pixels it needs on its longer side at `dpi`, for the
+/// largest size it is shown at (a cropped picture: the size of the whole picture); 0 for a
+/// picture not shown as such (picture borders' tiles).
+pub fn picture_pixels(doc: &crate::model::Document, dpi: f64) -> Vec<u32> {
+    use crate::model::{Para, Shape};
+    let mut need = vec![0u32; doc.images.len()];
+    fn add(need: &mut [u32], i: Option<usize>, w: f64, h: f64, dpi: f64) {
+        if let Some(i) = i {
+            if i < need.len() && w > 0.0 && h > 0.0 && w.is_finite() && h.is_finite() {
+                let px = (w.max(h) / 72.0 * dpi).ceil().min(20000.0) as u32;
+                need[i] = need[i].max(px);
+            }
+        }
+    }
+    fn in_text(need: &mut [u32], paras: &[Para], dpi: f64) {
+        for p in paras {
+            for r in &p.runs {
+                if let Some(o) = &r.object {
+                    walk(need, std::slice::from_ref(o.as_ref()), dpi);
+                }
+            }
+        }
+    }
+    fn walk(need: &mut [u32], shapes: &[Shape], dpi: f64) {
+        for s in shapes {
+            if s.image.is_some() {
+                let c = s.crop.unwrap_or([0.0; 4]);
+                add(need, s.image, s.w / (1.0 - c[0] - c[2]).max(0.01), s.h / (1.0 - c[1] - c[3]).max(0.01), dpi);
+            }
+            if let Some(f) = &s.fill {
+                add(need, f.image, s.w, s.h, dpi);
+            }
+            walk(need, &s.children, dpi);
+            if let Some(t) = &s.text {
+                in_text(need, &t.paras, dpi);
+            }
+            if let Some(t) = &s.table {
+                for c in &t.cells {
+                    if let Some(f) = &c.fill {
+                        add(need, f.image, s.w, s.h, dpi);
+                    }
+                    in_text(need, &c.paras, dpi);
+                }
+            }
+        }
+    }
+    for p in &doc.pages {
+        walk(&mut need, &p.shapes, dpi);
+        if let Some(f) = &p.background_fill {
+            add(&mut need, f.image, doc.width, doc.height, dpi);
+        }
+    }
+    need
 }
 
 /// Decodes a picture into RGBA pixels with its width and height.
