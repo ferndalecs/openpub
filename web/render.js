@@ -1622,12 +1622,6 @@
     const oneFlip = !!shape.flip_h !== !!shape.flip_v;
     const tr = transformOf(shape.kind === 'line' && oneFlip && shape.rotation ? Object.assign({}, shape, { rotation: -shape.rotation }) : shape, false);
     if (tr) d.style.transform = tr;
-    if (shape.shadow) {
-      const sh = shape.shadow;
-      const c = /^#[0-9a-f]{6}$/i.test(sh.color) ? sh.color : '#808080';
-      const a = Math.round(Math.max(0, Math.min(1, sh.opacity == null ? 1 : sh.opacity)) * 255).toString(16).padStart(2, '0');
-      d.style.filter = `drop-shadow(${pt(sh.dx)} ${pt(sh.dy)} 0 ${c}${a})`;
-    }
 
     // (an SVG without height isn't painted: give lines at least 1pt)
     const W = Math.max(shape.w, 1), H = Math.max(shape.h, 1);
@@ -1641,6 +1635,7 @@
 
     if (shape.wordart) {
       d.appendChild(renderWordArt(shape, mkSvg()));
+      addShadow(d, shape, ctx);
       parent.appendChild(d);
       return;
     }
@@ -1716,7 +1711,78 @@
       d.appendChild(fg);
     }
     if (shape.border_art) d.appendChild(renderBorderArt(shape, ctx));
+    addShadow(d, shape, ctx);
     parent.appendChild(d);
+  }
+
+  /**
+   * A shape's shadow. Publisher's are hard-edged copies of the shape's outline, offset: where
+   * everything the shape shows is drawn in its SVGs (WordArt, a filled shape or text box, a
+   * line, a photo in a plain frame), a copy of those SVGs in the shadow colour, behind them, is
+   * exactly what a CSS drop-shadow draws - and stays drawing in a PDF or on paper, where a CSS
+   * filter turns the whole shape into a picture (larger, slower to print, its text no longer
+   * text). Anything else (text with no fill behind it, see-through pictures, picture borders)
+   * keeps the filter.
+   */
+  function addShadow(d, shape, ctx) {
+    const sh = shape.shadow;
+    if (!sh) return;
+    const c = /^#[0-9a-f]{6}$/i.test(sh.color || '') ? sh.color : '#808080';
+    const op = Math.max(0, Math.min(1, sh.opacity == null ? 1 : sh.opacity));
+    const dx = isFinite(sh.dx) ? sh.dx : 0, dy = isFinite(sh.dy) ? sh.dy : 0;
+    const svgs = [...d.children].filter((e) => e.classList && e.classList.contains('op-svg') && e.getAttribute('width') !== '0');
+    const info = shape.image != null && ctx.images && ctx.images[shape.image];
+    const opaquePic = !!info && /^image\/(jpeg|bmp)$/i.test(info.mime || '') && [0, 1, 75, 201, 202].includes(shape.shape_type);
+    const vector = shape.wordart
+      || (!shape.border_art && (svgs.length || opaquePic) && (shape.fill || (!shape.text && (shape.image == null || opaquePic))));
+    if (!vector) {
+      const a = Math.round(op * 255).toString(16).padStart(2, '0');
+      d.style.filter = `drop-shadow(${pt(dx)} ${pt(dy)} 0 ${c}${a})`;
+      return;
+    }
+    const painted = (e, name) => {
+      for (let n = e; n && n.nodeType === 1; n = n.parentNode) {
+        const v = (n.style && n.style[name]) || n.getAttribute(name);
+        if (v) return v !== 'none';
+        if (n.tagName === 'svg') break;
+      }
+      return name === 'fill'; // (SVG fills in black when nothing is said)
+    };
+    const copies = [];
+    if (opaquePic && !shape.fill) {
+      const s = svgEl('svg', { class: 'op-svg', width: pt(shape.w), height: pt(shape.h), viewBox: `0 0 ${shape.w} ${shape.h}` });
+      s.appendChild(svgEl('rect', { width: shape.w, height: shape.h }));
+      copies.push(s);
+    }
+    for (const src of svgs) {
+      const s = src.cloneNode(true);
+      for (const e of [...s.querySelectorAll('*')]) {
+        if (e.closest('defs, clipPath, mask, pattern, linearGradient, radialGradient')) continue;
+        if (e.tagName === 'image') { e.remove(); continue; }
+        if (!/^(text|tspan|path|rect|ellipse|circle|polygon|polyline|line|use)$/.test(e.tagName)) continue;
+        if (e.tagName !== 'tspan' || e.hasAttribute('fill')) {
+          if (painted(e, 'fill')) { e.setAttribute('fill', c); e.style.fill = ''; }
+        }
+        if (e.hasAttribute('stroke') || (e.style && e.style.stroke)) {
+          if (painted(e, 'stroke')) { e.setAttribute('stroke', c); e.style.stroke = ''; }
+        }
+        e.removeAttribute('filter');
+      }
+      copies.push(s);
+    }
+    // (one box for all of them: a see-through shadow isn't darker where the outline meets the fill)
+    const box = el('div', 'op-shadow');
+    box.setAttribute('aria-hidden', 'true');
+    box.style.cssText = `position:absolute;left:${pt(dx)};top:${pt(dy)};width:100%;height:100%;pointer-events:none` + (op < 1 ? `;opacity:${op}` : '');
+    for (const s of copies) {
+      s.setAttribute('class', 'op-shadow-svg');
+      s.style.position = 'absolute';
+      s.style.overflow = 'visible';
+      if (!s.style.left) s.style.left = '0';
+      if (!s.style.top) s.style.top = '0';
+      box.appendChild(s);
+    }
+    d.insertBefore(box, d.firstChild);
   }
 
   /** A picture border: square tiles at the corners and, evenly spaced, along the edges. */

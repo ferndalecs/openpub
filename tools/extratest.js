@@ -56,7 +56,8 @@ const change = (id, v) => { $(id).value = v; $(id).dispatchEvent(new Event('chan
   check('No gradient removes it', !last().fill.color2 && !el(last()).querySelector('linearGradient'));
   $('shadowbtn').click();
   await wait(250);
-  check('Shadow adds a shadow', last().shadow && last().shadow.dx > 0 && /drop-shadow/.test(el(last()).style.filter) && $('shadowbtn').classList.contains('on'));
+  // (drawn as a copy of the shape behind it, or for some shapes a filter - see shadowtest)
+  check('Shadow adds a shadow', last().shadow && last().shadow.dx > 0 && (!!el(last()).querySelector(':scope > .op-shadow') || /drop-shadow/.test(el(last()).style.filter)) && $('shadowbtn').classList.contains('on'));
   change('shadowcolor', '#336699');
   await wait(250);
   check('in the chosen colour', last().shadow.color === '#336699');

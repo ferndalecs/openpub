@@ -103,7 +103,8 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
   for the size they are shown at and photos as JPEG - a 32 MB booklet of photos gives a 1.5 MB
   PDF; a painting or photo cut out from its background goes in as a JPEG with a see-through mask
   rather than stored without loss, which took an 83-page textbook of watercolours from 16.5 to
-  13 MB; drawings and screenshots stay sharp), a PNG picture of a page, to a Word document (`.docx`:
+  13 MB; drawings and screenshots stay sharp; shadows are drawn as a copy of the shape behind
+  it, so they stay real drawing and text in the PDF), a PNG picture of a page, to a Word document (`.docx`:
   editable text boxes - linked where Publisher links them -, real Word numbering, tables,
   pictures with their adjustments, Office shapes, WordArt as Word text effects, shadows, links
   on objects, page backgrounds; pictures sized like the PDF's: the same booklet gives a 1.4 MB

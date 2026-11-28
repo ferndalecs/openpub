@@ -385,7 +385,8 @@ body.drag #file::after { content: "Drop to open"; position: absolute; inset: 12p
   #pages { display: block; padding: 0; }
   .row { display: block; }
   .sheet { box-shadow: none !important; break-after: page; break-inside: avoid; margin: 0; }
-  .sheet .op-own { opacity: 1 !important; filter: none !important; }
+  /* (only the master-page view's dimming: a shape's own filter is its shadow) */
+  body.master-mode .sheet .op-own { opacity: 1 !important; filter: none !important; }
   .sheet.blank { display: none; }
   #pages > .sheet:last-child { break-after: auto; }
   #view { height: auto; }
