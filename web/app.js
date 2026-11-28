@@ -37,7 +37,9 @@
   function send(msg) {
     if (window.ipc) window.ipc.postMessage(JSON.stringify(msg));
   }
-  const imageUrl = (i) => 'img/' + i + '?v=' + version;
+  // (while a PDF is made: each picture asked for only as large as it is shown - picturePixels)
+  let pdfMax = null;
+  const imageUrl = (i) => 'img/' + i + '?v=' + version + (pdfMax && pdfMax.get(i) ? '&max=' + pdfMax.get(i) : '');
   const k = () => PX * scale; // screen px per point
   const clone = (o) => JSON.parse(JSON.stringify(o));
   const rad = (d) => d * Math.PI / 180;
@@ -4668,6 +4670,7 @@
     printRestore = () => {
       printRestore = null;
       busy = false;
+      pdfMax = null;
       style.remove();
       document.body.classList.toggle('master-mode', masterMode);
       $('spread').checked = prevSpread;
@@ -4702,7 +4705,39 @@
   }
   function exportPdf() {
     if (!doc || busy) return;
+    // a PDF to send or hand in: pictures at 220 dpi for the size they are shown at, not the
+    // camera's full size (a booklet of photos was 40 MB)
+    pdfMax = picturePixels(PDF_DPI);
     preparePrint().then(() => send({ cmd: 'pdf', width: doc.width, height: doc.height, path: exportPdf.path }));
+  }
+  const PDF_DPI = 220;
+  /** The most pixels each picture needs on its longer side at `dpi`, for the largest size it is
+   * shown at in the publication (a cropped picture: the size of the whole picture). */
+  function picturePixels(dpi) {
+    const need = new Map();
+    const add = (i, wPt, hPt) => {
+      if (!Number.isInteger(i) || !(wPt > 0 && hPt > 0)) return;
+      const px = Math.ceil(Math.max(wPt, hPt) / 72 * dpi);
+      need.set(i, Math.max(need.get(i) || 0, px));
+    };
+    const inText = (paras) => { for (const p of paras || []) for (const r of p.runs || []) if (r.object) walk([r.object]); };
+    const walk = (shapes) => {
+      for (const s of shapes || []) {
+        if (s.image != null) {
+          const c = s.crop || [0, 0, 0, 0];
+          add(s.image, s.w / Math.max(0.01, 1 - c[0] - c[2]), s.h / Math.max(0.01, 1 - c[1] - c[3]));
+        }
+        if (s.fill && s.fill.image != null) add(s.fill.image, s.w, s.h);
+        walk(s.children);
+        if (s.text) inText(s.text.paras);
+        if (s.table) for (const c of s.table.cells) { if (c.fill && c.fill.image != null) add(c.fill.image, s.w, s.h); inText(c.paras); }
+      }
+    };
+    for (const p of doc.pages) {
+      walk(p.shapes);
+      if (p.background_fill && p.background_fill.image != null) add(p.background_fill.image, doc.width, doc.height);
+    }
+    return need;
   }
 
 
@@ -4772,6 +4807,7 @@
     printRestore = () => {
       printRestore = null;
       busy = false;
+      pdfMax = null;
       style.remove();
       box.remove();
       document.body.classList.remove('bookprint');
@@ -4789,6 +4825,7 @@
   }
   function exportBookletPdf() {
     if (!doc || busy) return;
+    pdfMax = picturePixels(PDF_DPI);
     prepareBooklet().then((b) => send({ cmd: 'pdf', width: b.paper[0], height: b.paper[1], path: exportBookletPdf.path }));
   }
 
@@ -5231,7 +5268,7 @@
     test: {
       doc: () => doc, sheets: () => sheets, select, selectMany, selectAll, startEdit, commitEdit, format, addText, addBasic, addTable, addPage, deletePage, duplicatePage, movePage, duplicate, removeSelected,
       shapeEl, goTo, undo: () => restore(undoStack, redoStack), redo: () => restore(redoStack, undoStack), send, exportPdf,
-      state: () => ({ sel, editing: !!editing, textSel, cellSel, dirty, undo: undoStack.length, masterMode, cropMode, tab: activeTab, current }),
+      state: () => ({ sel, editing: !!editing, textSel, cellSel, dirty, undo: undoStack.length, masterMode, cropMode, tab: activeTab, current, busy }),
       reorder, groupSel, ungroupSel, nudge, setGeom, setRotation, rotateBy, setFill, setTransparency, setLine,
       setMargin, setVAlign, setColumns, setColumnGap,
       setBullet, setNumbering, clearList, toggleBullets, toggleNumbering, indent, setSpacing, setParaSpace,

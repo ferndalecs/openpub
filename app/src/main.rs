@@ -34,6 +34,9 @@ struct State {
     /// The open document as JSON (with its file name added).
     json: Option<String>,
     images: Vec<Image>,
+    /// Smaller copies of pictures made for a PDF: (picture, size asked for, its length) -> copy.
+    /// (None: the picture itself will do.)
+    scaled: std::collections::HashMap<(usize, u32, usize), Option<(&'static str, Vec<u8>)>>,
     /// The file the document came from.
     path: Option<PathBuf>,
     /// Unsaved changes (reported by the page).
@@ -74,6 +77,7 @@ fn recover(state: &Mutex<State>, file: &Path) -> Result<String, String> {
     let mut st = state.lock().unwrap();
     st.json = Some(json);
     st.images = images;
+    st.scaled.clear();
     st.path = meta.original.clone();
     st.name = name.clone();
     st.dirty = true;
@@ -200,11 +204,24 @@ fn serve(state: &Mutex<State>, request: Request<Vec<u8>>) -> Response<Cow<'stati
             respond("application/json; charset=utf-8", body.into_bytes().into(), false)
         }
         p if p.starts_with("img/") => {
-            let st = state.lock().unwrap();
-            match p[4..].parse::<usize>().ok().and_then(|i| st.images.get(i)) {
-                Some(img) => respond(&img.mime, img.bytes.clone().into(), true),
-                None => Response::builder().status(404).body(Cow::Borrowed(&b""[..])).unwrap(),
+            let mut st = state.lock().unwrap();
+            let Some(i) = p[4..].parse::<usize>().ok().filter(|i| *i < st.images.len()) else {
+                return Response::builder().status(404).body(Cow::Borrowed(&b""[..])).unwrap();
+            };
+            // "?max=N": a copy no bigger than N pixels on its longer side (for a PDF)
+            let max = request.uri().query().and_then(|q| q.split('&').find_map(|kv| kv.strip_prefix("max=")).and_then(|v| v.parse::<u32>().ok())).filter(|m| (16..=20000).contains(m));
+            if let Some(max) = max {
+                let key = (i, max, st.images[i].bytes.len());
+                if !st.scaled.contains_key(&key) {
+                    let copy = openpub_core::images::fit(&st.images[i].bytes, max);
+                    st.scaled.insert(key, copy);
+                }
+                if let Some(Some((mime, bytes))) = st.scaled.get(&key) {
+                    return respond(mime, bytes.clone().into(), true);
+                }
             }
+            let img = &st.images[i];
+            respond(&img.mime, img.bytes.clone().into(), true)
         }
         _ => Response::builder().status(404).body(Cow::Borrowed(&b""[..])).unwrap(),
     }
@@ -491,6 +508,7 @@ fn main() -> wry::Result<()> {
                         st.name = file_name(&path);
                         st.json = Some(json);
                         st.images = images;
+                        st.scaled.clear();
                         st.path = Some(path.clone());
                         st.dirty = false;
                     }
@@ -543,6 +561,7 @@ fn main() -> wry::Result<()> {
                     st.name = name.clone();
                     st.json = Some(blank(width.clamp(36.0, 14400.0), height.clamp(36.0, 14400.0), &name, template.as_deref()));
                     st.images = Vec::new();
+                    st.scaled.clear();
                     st.path = None;
                     st.dirty = false;
                 }
