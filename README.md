@@ -72,7 +72,11 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
     shows a box whose text doesn't all fit; Make box fit text and Shrink text to fit fix it, or
     Link to text box carries the text on into another box (an empty one on any page, or a new
     one where the page is clicked) as Publisher's linked boxes do; Break link and the arrows
-    between linked boxes too.
+    between linked boxes too. Insert > Symbol (Welsh letters first: ŵ ŷ â ê î ô û and their
+    acute, grave and diaeresis forms, then other letters, punctuation, maths and signs, with the
+    recently used ones) and Word's accent keys while typing (Ctrl+Shift+6 then a letter for ŵ,
+    Ctrl+' for é, Ctrl+` for è, Ctrl+Shift+; for ë); Insert > Page number at the cursor, or in a
+    box at the foot of the page (of the master page, to number every page).
   * Find & Replace (Ctrl+F / Ctrl+H) across the whole publication, with Match case, Replace and
     Replace All (one undo step).
   * Shapes and pictures: a gallery of about 60 shapes (basic shapes, block arrows, flowchart,

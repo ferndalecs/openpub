@@ -1474,7 +1474,132 @@
     }, 0);
   }
   const ALIGN_KEYS = { l: 'left', e: 'center', r: 'right', j: 'justify' };
+  // ---- accents, symbols and page numbers --------------------------------------------------------
+  // Word's keys for accented letters work while typing: Ctrl+Shift+6 (^) then a letter gives
+  // â ê î ô û ŵ ŷ; Ctrl+' acute (é), Ctrl+` grave (è), Ctrl+Shift+; (:) diaeresis (ë).
+  const ACCENTS = { Digit6: ['̂', true], Quote: ['́', false], Backquote: ['̀', false], Semicolon: ['̈', true] };
+  let accentNext = null;
+  /** For a keydown while typing: true if it was an accent key, or the letter after one (put in
+   * with `insert`). */
+  function accentKey(e, insert) {
+    const ctrl = e.ctrlKey || e.metaKey;
+    const a = ctrl && !e.altKey && ACCENTS[e.code];
+    if (a && a[1] === e.shiftKey) {
+      e.preventDefault();
+      accentNext = a[0];
+      return true;
+    }
+    if (!accentNext || ['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'].includes(e.key)) return false;
+    const mark = accentNext;
+    accentNext = null;
+    if (e.key.length !== 1 || ctrl || e.altKey) return false;
+    const ch = (e.key + mark).normalize('NFC');
+    e.preventDefault();
+    insert(ch.length === 1 ? ch : e.key);
+    return true;
+  }
+  const SYMBOLS = [
+    ['Welsh letters', 'â ê î ô û ŵ ŷ Â Ê Î Ô Û Ŵ Ŷ á é í ó ú ẃ ý à è ì ò ù ẁ ỳ ä ë ï ö ü ẅ ÿ Á É Í Ó Ú Ẃ Ý À È Ì Ò Ù Ẁ Ỳ Ä Ë Ï Ö Ü Ẅ Ÿ'],
+    ['Other letters', 'ç ñ ß æ ø å œ Ç Ñ Æ Ø Å'],
+    ['Punctuation', '‘ ’ “ ” – — … • · « » ¡ ¿'],
+    ['Money and maths', '£ € $ ¢ ¥ ° ± × ÷ ≈ ≠ ≤ ≥ ½ ¼ ¾ ² ³ √ ∞ π µ'],
+    ['Signs', '© ® ™ § ¶ † ✓ ✗ ★ ☆ ♥ ☺ ☹ ♪ ☀ ☂ ✈ ☎ ✉ ← → ↑ ↓ ↔'],
+  ];
+  let recentSymbols = [];
+  try { recentSymbols = JSON.parse(localStorage.getItem('openpub.symbols') || '[]').filter((s) => typeof s === 'string' && s.length <= 2).slice(0, 16); } catch (e) { recentSymbols = []; }
+  function buildSymbolPop() {
+    const pop = $('sympop');
+    pop.textContent = '';
+    const group = (title, list) => {
+      if (!list.length) return;
+      pop.appendChild(mk('h3', '', title));
+      const cells = mk('div', 'cells');
+      for (const ch of list) {
+        const b = mk('button', 'sym', ch);
+        b.title = ch + '  (U+' + ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0') + ')';
+        b.setAttribute('aria-label', ch);
+        b.addEventListener('mousedown', (e) => e.preventDefault());
+        // (the list stays open for another one)
+        b.addEventListener('click', (e) => { e.stopPropagation(); insertSymbol(ch); });
+        cells.appendChild(b);
+      }
+      pop.appendChild(cells);
+    };
+    group('Recently used', recentSymbols);
+    for (const [title, s] of SYMBOLS) group(title, s.split(' '));
+    pop.appendChild(mk('p', 'symtip', 'While typing: Ctrl+Shift+6 then a letter for ŵ, ŷ, â...; Ctrl+\' then a letter for é.'));
+  }
+  /** Puts a symbol where the cursor is (in text on the page, or WordArt's words); with a text box
+   * or WordArt selected but not being typed in, at the end of its text. */
+  function insertSymbol(ch) {
+    if (!doc) return false;
+    const done = putSymbol(ch);
+    if (done) {
+      recentSymbols = [ch, ...recentSymbols.filter((s) => s !== ch)].slice(0, 16);
+      try { localStorage.setItem('openpub.symbols', JSON.stringify(recentSymbols)); } catch (e) { /* not kept */ }
+    }
+    return done;
+  }
+  function putSymbol(ch) {
+    if (waEdit) {
+      const ta = waEdit.ta;
+      ta.focus({ preventScroll: true });
+      ta.setRangeText(ch, ta.selectionStart, ta.selectionEnd, 'end');
+      ta.dispatchEvent(new Event('input'));
+      return true;
+    }
+    if (editing) {
+      editing.flow.focus({ preventScroll: true });
+      document.execCommand('insertText', false, ch);
+      return true;
+    }
+    if (sel && sel.shapes.length === 1 && sel.shape.wordart) {
+      editWordArt(sel.page, sel.shape, sel.shape.wordart.text + ch);
+      return true;
+    }
+    const flow = sel && sel.shapes.length === 1 && shapeEl(sel.page, sel.shape) && shapeEl(sel.page, sel.shape).querySelector('.op-flow');
+    if (flow && flow.opOwner) {
+      startEdit(sel.page, sel.shape, flow, null, { a: { p: 1e6, o: 1e9 }, b: { p: 1e6, o: 1e9 } });
+      document.execCommand('insertText', false, ch);
+      return true;
+    }
+    showNotes(['Click in some text first: the symbol goes where the cursor is.'], 5000);
+    return false;
+  }
+  /** Insert > Page number: at the cursor while typing; otherwise a small box at the foot of the
+   * page (of the master page in the master-page view, so every page using it is numbered). */
+  function insertPageNumber() {
+    if (!doc) return;
+    if (editing) {
+      const n = doc.pages[editing.page] ? doc.pages[editing.page].number : editing.page + 1;
+      const flow = editing.flow;
+      flow.focus({ preventScroll: true });
+      const s = window.getSelection();
+      if (!s.rangeCount || !flow.contains(s.anchorNode)) return;
+      // (put in as the page shows a page number - read back as one when the typing is finished)
+      const r = s.getRangeAt(0);
+      r.deleteContents();
+      const span = document.createElement('span');
+      span.dataset.field = 'page';
+      span.contentEditable = 'false';
+      span.textContent = String(Number(n) || '');
+      r.insertNode(span);
+      r.setStartAfter(span);
+      r.collapse(true);
+      s.removeAllRanges();
+      s.addRange(r);
+      flow.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
+    const body = newTextBody('');
+    body.paras[0].align = 'center';
+    body.paras[0].runs = [Object.assign({}, DEFAULT_RUN, { size: 11, text: '#', field: 'page' })];
+    addShape({ kind: 'text', shape_type: 202, x: doc.width / 2 - 36, y: doc.height - 42, w: 72, h: 22, text: body }, false);
+    if (!masterMode) showNotes(['Page number added at the foot of this page. To number every page, add it on the master page instead (Page > Master page).'], 8000);
+  }
+
   function onEditKey(e) {
+    if (accentKey(e, (ch) => document.execCommand('insertText', false, ch))) { e.stopPropagation(); return; }
     if (e.key === 'Escape') {
       e.preventDefault();
       commitEdit();
@@ -2097,6 +2222,7 @@
     ta.addEventListener('input', changed);
     ta.addEventListener('keydown', (e) => {
       e.stopPropagation();
+      if (accentKey(e, (ch) => { ta.setRangeText(ch, ta.selectionStart, ta.selectionEnd, 'end'); changed(); })) return;
       if (e.key === 'Escape' || e.key === 'Tab' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) {
         e.preventDefault();
         endWordArt();
@@ -2109,7 +2235,8 @@
     // (and a click anywhere else, whether or not the window had the keyboard)
     const away = (e) => {
       if (waEdit !== ed) { document.removeEventListener('pointerdown', away, true); return; }
-      if (e.target === ta) return;
+      // (the symbols list, and the tabs on the way to it, leave the words being typed open)
+      if (e.target === ta || (e.target.closest && e.target.closest('#sympop, #addsym, [role=tab]'))) return;
       document.removeEventListener('pointerdown', away, true);
       endWordArt();
     };
@@ -5254,7 +5381,10 @@
   $('pageno').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.target.blur(); view.focus({ preventScroll: true }); } });
 
   // drop-down menus
-  for (const [btn, menu] of [['linkbtn', 'linkpop'], ['shapesbtn', 'shapepop'], ['bulmenu', 'bulpop'], ['nummenu', 'numpop'], ['spbtn', 'sppop'], ['addtable', 'tblpop']]) {
+  // (the symbols list shows the recently used ones as of now)
+  $('addsym').addEventListener('click', buildSymbolPop);
+  on('addpagenum', insertPageNumber);
+  for (const [btn, menu] of [['linkbtn', 'linkpop'], ['shapesbtn', 'shapepop'], ['bulmenu', 'bulpop'], ['nummenu', 'numpop'], ['spbtn', 'sppop'], ['addtable', 'tblpop'], ['addsym', 'sympop']]) {
     $(btn).addEventListener('click', (e) => {
       e.stopPropagation();
       const open = $(menu).hidden;
@@ -5466,7 +5596,7 @@
       armTool, cancelTool, tool: () => tool, snapTargets, snap1, showCtx, hideCtx, openSwatches, hideSwatches, setArrows, picturesAdded,
       autosaveNow, docJsonLive, checkUnsaved, setUnsavedSince: (t) => { unsavedSince = t; },
       editWordArt, endWordArt, fitBoxToText, shrinkTextToFit, overflowing, openPick, closePick, applyPick,
-      armLink, linkTo, breakLink, stepLinked, chainOf, linkSource,
+      armLink, linkTo, breakLink, stepLinked, chainOf, linkSource, insertSymbol, insertPageNumber, waEditing: () => !!waEdit,
       pickRows: () => pick.rows.map((d) => d.dataset.v), systemFonts: () => systemFonts, loadSystemFonts,
     },
   };

@@ -259,6 +259,15 @@
         <div class="gb">
           <button id="addtext" class="big" title="Draw a text box: click on the page, or drag to choose its size"><svg class="i"><use href="#i-text"/></svg>Text box</button>
           <button id="addwa" class="big" title="Add WordArt: decorative text stretched to its box"><svg class="i"><use href="#i-wa"/></svg>WordArt</button>
+          <div class="col">
+            <div class="r menu">
+              <button id="addsym" class="ib" title="Put in a symbol or a Welsh letter (ŵ, ŷ, â...) where the cursor is" aria-haspopup="true" aria-expanded="false" aria-controls="sympop"><span class="fa">Ω</span>Symbol ▾</button>
+              <div class="pop gallery" id="sympop" hidden role="group" aria-label="Symbols"></div>
+            </div>
+            <div class="r">
+              <button id="addpagenum" class="ib" title="Put the page number where the cursor is - or, with no text being typed, in a box at the foot of the page"><span class="fa">#</span>Page number</button>
+            </div>
+          </div>
         </div>
         <div class="gl">Text</div>
       </div>
@@ -834,6 +843,8 @@
         <div><h3>Add WordArt</h3><p><b>Insert</b> &gt; <b>WordArt</b>, type your words in the box that appears, then press <kbd>Esc</kbd>. Double-click WordArt to change its words.</p></div>
         <div><h3>Line things up</h3><p>Drag objects: pink lines show when they line up with the page edges, the middle of the page or each other. Hold <kbd>Alt</kbd> to place freely. <b>Shape Format</b> &gt; <b>Align</b> lines up several at once.</p></div>
         <div><h3>A red <span class="ovfdemo">!</span> on a text box</h3><p>Some of the text doesn't fit. Click the <b>!</b>, then <b>Make box fit text</b> or <b>Shrink text to fit</b> - or drag the box bigger.</p></div>
+        <div><h3>Welsh letters (ŵ, ŷ, â...) and symbols</h3><p><b>Insert</b> &gt; <b>Symbol</b> while typing. Or press <kbd>Ctrl+Shift+6</kbd>, then the letter: <kbd>w</kbd> gives ŵ. <kbd>Ctrl+'</kbd> then a letter gives é.</p></div>
+        <div><h3>Page numbers</h3><p><b>Insert</b> &gt; <b>Page number</b>. To number every page, do it on the master page (<b>Page</b> &gt; <b>Master page</b>).</p></div>
         <div><h3>Carry text on into another box</h3><p>For an article that continues on another page: select its text box, <b>Text Box</b> &gt; <b>Link to text box</b>, then click an empty text box (or an empty part of a page for a new one). <b>Break link</b> stops it again.</p></div>
         <div><h3>Undo a mistake</h3><p><kbd>Ctrl+Z</kbd> takes back the last change (again for the one before); <kbd>Ctrl+Y</kbd> puts it back.</p></div>
         <div><h3>Save your work</h3><p><kbd>Ctrl+S</kbd>. OpenPub saves an OpenPub (.opub) file; a Publisher (.pub) file you opened is left as it was. Unsaved work is kept in a recovery copy and offered back if OpenPub closes unexpectedly.</p></div>
