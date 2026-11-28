@@ -112,6 +112,8 @@
       for (const e of entries) {
         const s = e.target.opSheet;
         s.visible = e.isIntersecting;
+        // (pages scrolled past stay drawn: letting go of them was measured to save no memory -
+        // what grows is WebView2's own picture caches, 0.3.22)
         if (e.isIntersecting) renderSheet(s);
       }
     }, { root: view, rootMargin: '150% 0px' });
@@ -4698,6 +4700,9 @@
   }
   function printAll() {
     if (!doc || busy) return;
+    // (photos at 300 dpi for the size they're printed, not the camera's: a smaller, quicker job
+    // for the printer)
+    pdfMax = picturePixels(PRINT_DPI);
     preparePrint().then(() => {
       window.addEventListener('afterprint', () => printRestore && printRestore(), { once: true });
       window.print();
@@ -4711,6 +4716,7 @@
     preparePrint().then(() => send({ cmd: 'pdf', width: doc.width, height: doc.height, path: exportPdf.path }));
   }
   const PDF_DPI = 220;
+  const PRINT_DPI = 300;
   /** The most pixels each picture needs on its longer side at `dpi`, for the largest size it is
    * shown at in the publication (a cropped picture: the size of the whole picture). */
   function picturePixels(dpi) {
@@ -4818,6 +4824,7 @@
   }
   function printBooklet() {
     if (!doc || busy) return;
+    pdfMax = picturePixels(PRINT_DPI);
     prepareBooklet().then(() => {
       window.addEventListener('afterprint', () => printRestore && printRestore(), { once: true });
       window.print();
@@ -5281,6 +5288,8 @@
       clean: () => setDirty(false),
       setBorderArt, setBorderSize, docBorders,
       bookletPlan, prepareBooklet, exportBookletPdf, printRestore: () => printRestore && printRestore(),
+      // (printing as printAll does it, without the print dialog)
+      preparePrintPictures: () => { pdfMax = picturePixels(PRINT_DPI); return preparePrint(); },
       setPattern,
       armTool, cancelTool, tool: () => tool, snapTargets, snap1, showCtx, hideCtx, openSwatches, hideSwatches, setArrows, picturesAdded,
       autosaveNow, docJsonLive, checkUnsaved, setUnsavedSince: (t) => { unsavedSince = t; },

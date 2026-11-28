@@ -1,6 +1,6 @@
 [package]
 name = "openpub"
-version = "0.3.21"
+version = "0.3.22"
 edition = "2024"
 description = "Viewer and editor for Microsoft Publisher files"
 license = "MIT"

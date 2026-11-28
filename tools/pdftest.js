@@ -27,6 +27,14 @@ const check = (name, cond, detail) => {
     check('the export finishes', !T.state().busy);
     const after = [...document.querySelectorAll('#pages img')].map((i) => i.getAttribute('src') || '');
     check('...and the page shows the full pictures again', after.length > 0 && after.every((s) => !/max=/.test(s)), after.filter((s) => /max=/.test(s)).length);
+
+    // printing (0.3.22): the same, at 300 dpi
+    await T.preparePrintPictures();
+    const printed = [...document.querySelectorAll('#pages img')].map((i) => i.getAttribute('src') || '').filter((s) => /max=/.test(s)).map((s) => +s.match(/max=(\d+)/)[1]);
+    check('printing asks for the pictures at 300 dpi (more than the PDF\'s 220)', printed.length === m.length && Math.min(...printed) > Math.min(...m) && Math.round(Math.max(...printed) / Math.max(...m) * 100) >= 130, [Math.min(...printed), Math.min(...m)]);
+    T.printRestore();
+    await wait(300);
+    check('...and afterwards the full pictures again', [...document.querySelectorAll('#pages img')].every((i) => !/max=/.test(i.getAttribute('src') || '')));
   } catch (e) {
     check('no error', false, String(e && e.stack || e));
   }
