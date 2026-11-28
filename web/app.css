@@ -3,7 +3,7 @@
   --bar-line: #d9d5cd;
   --ribbon: #fbfaf7;
   --ink: #23211d;
-  --muted: #6d685f;
+  --muted: #615c54; /* (4.5:1 or more on every background it's used on, the page strip included) */
   --desk: #5b5f66;
   --accent: #0f6e5f;
   --accent-soft: #d5ebe6;
@@ -17,6 +17,8 @@
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
+/* read out by screen readers, not shown */
+.sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 html, body { height: 100%; margin: 0; }
 body { display: flex; flex-direction: column; font: 13px/1.3 "Segoe UI", system-ui, sans-serif; color: var(--ink); background: var(--desk); overflow: hidden; user-select: none; }
 
@@ -387,4 +389,17 @@ body.drag #file::after { content: "Drop to open"; position: absolute; inset: 12p
   .sheet.blank { display: none; }
   #pages > .sheet:last-child { break-after: auto; }
   #view { height: auto; }
+}
+
+/* ---- Windows high contrast: the program's own parts take the system colours (the browser
+   does that), but the publication is shown as it is, colour swatches keep the colour they
+   offer, and the selection, guides and snap lines are drawn in the highlight colour ------- */
+@media (forced-colors: active) {
+  .sheet, .sheet .clip, .op-page-wrap, .thumb .op-page-wrap, .swatch input, .swatchpop .sw button { forced-color-adjust: none; }
+  .selbox, .selbox .h, .selbox .stem { forced-color-adjust: none; border-color: Highlight; }
+  .selbox .h { background: Canvas; }
+  .selbox .guide, .snapline, #thumbs .dropline { forced-color-adjust: none; background: Highlight; }
+  .selbox .cell { forced-color-adjust: none; outline-color: Highlight; background: transparent; }
+  .ovf { forced-color-adjust: none; }
+  #bar button.tog.on, #bar button[aria-pressed=true], [role=tab][aria-selected=true] { outline: 2px solid Highlight; outline-offset: -2px; }
 }

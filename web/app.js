@@ -725,6 +725,22 @@
     }
   }
 
+  /** Says something to screen readers (a polite live region; nothing on the screen changes). */
+  let tabOut = false; // Esc let go of an object: the next Tab leaves the page area
+  function announce(text) {
+    const live = $('srlive');
+    if (!live) return;
+    // (the same words twice are still read out: clear first, then set)
+    live.textContent = '';
+    setTimeout(() => { live.textContent = text; }, 30);
+  }
+  /** An object as a screen reader should hear it: its kind and the start of its words. */
+  function describeShape(s) {
+    const words = s.wordart ? s.wordart.text : s.text && s.text.paras ? s.text.paras.map((p) => p.runs.map((r) => r.text || '').join('')).join(' ') : '';
+    const w = words.replace(/\s+/g, ' ').trim();
+    return kindName(s) + (w ? ': ' + (w.length > 60 ? w.slice(0, 57) + '…' : w) : '');
+  }
+
   function kindName(s) {
     if (s.kind === 'table') return `Table (${s.table.rows.length} × ${s.table.cols.length})`;
     if (s.kind === 'group') return `Group of ${(s.children || []).length}`;
@@ -5101,6 +5117,25 @@
     }
     if (ctrl && 'biu'.includes(key) && key.length === 1) { e.preventDefault(); format({ [{ b: 'bold', i: 'italic', u: 'underline' }[key]]: 'toggle' }); return; }
     if (ctrl && key in ALIGN_KEYS && key.length === 1 && !e.shiftKey) { e.preventDefault(); if (sel) format({ align: ALIGN_KEYS[key] }); return; }
+    // Tab steps through the objects on the page, Shift+Tab back (as in Publisher), so a page can
+    // be worked with the keyboard alone: Enter then types in the object, the arrows move it.
+    // From the page area with nothing selected Tab selects the first object; after Esc has let
+    // go of an object, the next Tab leaves the page area as usual.
+    if (e.key === 'Tab' && !ctrl && !e.altKey && doc && (t === view || t === document.body) && !(tabOut && !sel)) {
+      const page = sel ? sel.page : current;
+      const list = (doc.pages[page] ? doc.pages[page].shapes : []).filter((s) => (masterMode ? s.from_master : !s.from_master));
+      if (list.length) {
+        e.preventDefault();
+        const i = sel ? list.indexOf(sel.shape) : -1;
+        const n = list.length;
+        const next = list[i < 0 ? (e.shiftKey ? n - 1 : 0) : (i + (e.shiftKey ? -1 : 1) + n) % n];
+        select(page, next);
+        view.focus({ preventScroll: true });
+        announce(`${describeShape(next)}. ${list.indexOf(next) + 1} of ${n} on page ${page + 1}.`);
+        return;
+      }
+    }
+    if (e.key === 'Tab') tabOut = false;
     const arrow = e.key.startsWith('Arrow');
     const adx = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
     const ady = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
@@ -5112,7 +5147,7 @@
       if (cancelTool()) return;
       if (cropMode) setCropMode(false);
       else if (cellSel) { cellSel = null; showSel(); updateButtons(); syncToolbar(); }
-      else if (sel) select(0, null);
+      else if (sel) { select(0, null); tabOut = true; announce('Nothing selected.'); }
       else if (masterMode) setMasterMode(false);
     } else if (cellSel && sel && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); clearCells(); }
     else if (sel && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); removeSelected(); }

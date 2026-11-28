@@ -47,6 +47,11 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
   shortcuts - F1 or the ? button).
 * **Status bar**: page navigation, the selected object with its position and size, the
   two-page view and a zoom slider (10% to 800%).
+* **Accessibility**: every control has a name for screen readers and a visible focus outline,
+  text meets WCAG AA contrast, the page can be worked with the keyboard (Tab / Shift+Tab select
+  the objects one by one and a screen reader hears which, Enter types in one, the arrow keys
+  move it, Esc then Tab leaves the page), and in Windows high contrast the publication and the
+  colour swatches keep their colours while the selection is drawn in the highlight colour.
 * **Open** `.pub` (Publisher 2003 and later) and `.opub` files: File > Open, Ctrl+O, drag and
   drop, or a path on the command line.
 * **Edit** (ribbon with Home / Insert / Page / Shape / Table / Picture tabs):
@@ -181,7 +186,7 @@ setup, `tools/extratest.js` for WordArt, effects, links, table styles, picture a
 the page picture and the designs, `tools/wraptest.js` for editing text that flows round a
 shape, `tools/safetytest.js` for not losing unsaved work, `tools/linktest.js` for linked text boxes
 and text positions, `tools/texttest.js` for the font and size lists, WordArt typed on the page and
-text that doesn't fit). `tools/booktest.js` covers pattern fills and booklets; `tools/bordertest.js` picture borders and 3-D WordArt; `tools/gaptest.js` the marker on turned boxes, PDF links and pictures in shapes in Word; `tools/holetest.js` (on the Cymru textbook) text carried on past boxes in the middle of a line, freeform shapes and unhyphenated Welsh text. `tools/helptest.js` covers the help page, the table grid, the designs (all their text must
+text that doesn't fit). `tools/booktest.js` covers pattern fills and booklets; `tools/bordertest.js` picture borders and 3-D WordArt; `tools/gaptest.js` the marker on turned boxes, PDF links and pictures in shapes in Word; `tools/holetest.js` (on the Cymru textbook) text carried on past boxes in the middle of a line, freeform shapes and unhyphenated Welsh text; `tools/a11ytest.js` accessibility: names for screen readers, WCAG AA contrast and focus styles on every ribbon tab, the File screen and Help, and working the page with the keyboard (Tab / Shift+Tab step through the objects, Esc then Tab leaves the page). `tools/helptest.js` covers the help page, the table grid, the designs (all their text must
 fit), the page sizes and the tooltips. `tools/drawtest.js` covers drawing with the mouse, snapping,
 the right-click menu, colour swatches, arrowheads and pictures by paste and drop.
 `tools/rectest.ps1` checks recovery copies: a window is killed mid-work
