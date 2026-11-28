@@ -14,6 +14,7 @@
     <symbol id="i-al" viewBox="0 0 16 16"><path d="M2 3h12M2 6.5h8M2 10h12M2 13.5h8"/></symbol>
     <symbol id="i-ac" viewBox="0 0 16 16"><path d="M2 3h12M4 6.5h8M2 10h12M4 13.5h8"/></symbol>
     <symbol id="i-ar" viewBox="0 0 16 16"><path d="M2 3h12M6 6.5h8M2 10h12M6 13.5h8"/></symbol>
+    <symbol id="i-wrap" viewBox="0 0 16 16"><rect x="5" y="5.2" width="6" height="5.6" fill="currentColor"/><path d="M1.5 2.5h13M1.5 7h2M12.5 7h2M1.5 11.3h2M12.5 11.3h2M1.5 14h13"/></symbol>
     <symbol id="i-aj" viewBox="0 0 16 16"><path d="M2 3h12M2 6.5h12M2 10h12M2 13.5h12"/></symbol>
     <symbol id="i-bul" viewBox="0 0 16 16"><circle cx="3" cy="4" r="1.3" fill="currentColor" stroke="none"/><circle cx="3" cy="8" r="1.3" fill="currentColor" stroke="none"/><circle cx="3" cy="12" r="1.3" fill="currentColor" stroke="none"/><path d="M6.5 4H14M6.5 8H14M6.5 12H14"/></symbol>
     <symbol id="i-num" viewBox="0 0 16 16"><text x="0.6" y="6" font-size="5.6" font-family="Segoe UI, sans-serif" fill="currentColor" stroke="none">1</text><text x="0.6" y="10.4" font-size="5.6" font-family="Segoe UI, sans-serif" fill="currentColor" stroke="none">2</text><text x="0.6" y="14.8" font-size="5.6" font-family="Segoe UI, sans-serif" fill="currentColor" stroke="none">3</text><path d="M6.5 4H14M6.5 8.4H14M6.5 12.8H14"/></symbol>
@@ -422,6 +423,20 @@
           </div>
         </div>
         <div class="gl">Link</div>
+      </div>
+      <div class="grp" role="group" aria-label="Wrap text">
+        <div class="gb">
+          <div class="menu"><button id="wrapbtn" class="big" title="How the text in text boxes flows around this object" aria-haspopup="true" aria-expanded="false" aria-controls="wrappop"><svg class="i"><use href="#i-wrap"/></svg>Wrap text ▾</button>
+            <div class="pop" id="wrappop" hidden>
+              <button data-wrap="square" class="tog" title="Text goes round the object's box, keeping a little space">Square</button>
+              <button data-wrap="tight" class="tog" title="Text follows the outline of a shape (round a circle, a star...)">Tight</button>
+              <button data-wrap="topbottom" class="tog" title="Text stops above the object and carries on below it - nothing beside it">Top and bottom</button>
+              <button data-wrap="front" class="tog" title="The object sits on top of the text, which doesn't move">In front of text</button>
+              <button data-wrap="behind" class="tog" title="The object sits behind the text, like a background picture">Behind text</button>
+            </div>
+          </div>
+        </div>
+        <div class="gl">Wrap</div>
       </div>
       <div class="grp" role="group" aria-label="Picture border">
         <div class="gb col">
@@ -844,6 +859,7 @@
         <div><h3>Line things up</h3><p>Drag objects: pink lines show when they line up with the page edges, the middle of the page or each other. Hold <kbd>Alt</kbd> to place freely. <b>Shape Format</b> &gt; <b>Align</b> lines up several at once.</p></div>
         <div><h3>A red <span class="ovfdemo">!</span> on a text box</h3><p>Some of the text doesn't fit. Click the <b>!</b>, then <b>Make box fit text</b> or <b>Shrink text to fit</b> - or drag the box bigger.</p></div>
         <div><h3>Welsh letters (ŵ, ŷ, â...) and symbols</h3><p><b>Insert</b> &gt; <b>Symbol</b> while typing. Or press <kbd>Ctrl+Shift+6</kbd>, then the letter: <kbd>w</kbd> gives ŵ. <kbd>Ctrl+'</kbd> then a letter gives é.</p></div>
+        <div><h3>Text around a picture</h3><p>Select the picture (or shape), then <b>Shape Format</b> &gt; <b>Wrap text</b>: <b>Square</b> or <b>Tight</b> to flow text round it, <b>Top and bottom</b>, <b>In front of text</b>, or <b>Behind text</b> for a background.</p></div>
         <div><h3>Page numbers</h3><p><b>Insert</b> &gt; <b>Page number</b>. To number every page, do it on the master page (<b>Page</b> &gt; <b>Master page</b>).</p></div>
         <div><h3>Carry text on into another box</h3><p>For an article that continues on another page: select its text box, <b>Text Box</b> &gt; <b>Link to text box</b>, then click an empty text box (or an empty part of a page for a new one). <b>Break link</b> stops it again.</p></div>
         <div><h3>Undo a mistake</h3><p><kbd>Ctrl+Z</kbd> takes back the last change (again for the one before); <kbd>Ctrl+Y</kbd> puts it back.</p></div>

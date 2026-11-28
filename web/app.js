@@ -3376,6 +3376,15 @@
     if (shd && isHex(shd.shadow.color)) $('shadowcolor').value = shd.shadow.color;
     const linked = sel && sel.shapes.find((s) => s.link);
     $('linkbtn').classList.toggle('has', !!linked);
+    {
+      // the wrapping of the selection, when it's all the same
+      const modes = sel ? [...new Set(sel.shapes.map((x) => wrapModeOf(sel.page, x)))] : [];
+      for (const b of document.querySelectorAll('#wrappop [data-wrap]')) {
+        const on = modes.length === 1 && modes[0] === b.dataset.wrap;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-pressed', String(on));
+      }
+    }
     if ($('linkpop').hidden) setv('linkurl', linked ? linked.link : '');
     const wa = sel && sel.shapes.length === 1 && sel.shape.wordart ? sel.shape : null;
     $('wagrp').hidden = !wa;
@@ -3471,7 +3480,7 @@
     en(['font', 'size', 'grow', 'shrink', 'bold', 'italic', 'underline', 'strike', 'super', 'sub', 'color', 'al', 'ac', 'ar', 'aj', 'bul', 'bulmenu', 'num', 'nummenu', 'indl', 'indr', 'spbtn'], text);
     const lv = sel ? leaves(sel.shapes).filter((x) => x.kind !== 'table') : [];
     en(['fill', 'nofill', 'transp', 'graddir', 'fill2', 'pattern'], s && lv.some((x) => x.kind !== 'line'));
-    en(['shadowbtn', 'shadowcolor', 'linkbtn'], s);
+    en(['shadowbtn', 'shadowcolor', 'linkbtn', 'wrapbtn'], s);
     en(['addwa'], has);
     en(['linecolor', 'linewidth', 'dash'], s && lv.length > 0);
     en(['arrows'], s && lv.some((x) => x.kind === 'line'));
@@ -3623,6 +3632,12 @@
     commitEdit();
     const page = sel.page;
     pushUndo(page);
+    stackSel(front);
+    rerender(page);
+  }
+  /** The selected objects to the front or the back of their page (no undo step, no redraw). */
+  function stackSel(front) {
+    const page = sel.page;
     const list = doc.pages[page].shapes;
     const items = selOrdered();
     for (const s of items) list.splice(list.indexOf(s), 1);
@@ -3636,7 +3651,36 @@
       while (j < list.length && list[j].from_master) j++;
     }
     list.splice(j, 0, ...items);
+  }
+
+  // ---- wrapping text around objects ------------------------------------------------------------
+  // Text in a box flows around the objects above it (the model's `wrap`: square, tight,
+  // topbottom, none). Publisher's "in front of text" and "behind text" both don't push text
+  // away; they differ in whether the object is above or below the text.
+  const WRAP_MODES = ['square', 'tight', 'topbottom', 'front', 'behind'];
+  /** How text wraps around a shape on page `page`, as the menu names it. */
+  function wrapModeOf(page, s) {
+    const w = s.wrap || 'square';
+    if (w === 'through') return 'tight';
+    if (w !== 'none') return w;
+    // behind: below every text box it overlaps
+    const list = doc.pages[page].shapes, at = list.indexOf(s);
+    const b = aabb(s);
+    const over = list.filter((o) => o !== s && o.text && !o.wordart && o.kind !== 'table' && aabbOverlap(b, aabb(o)));
+    return over.length && over.every((o) => list.indexOf(o) > at) ? 'behind' : 'front';
+  }
+  const aabbOverlap = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  function setWrap(mode) {
+    if (!sel || !WRAP_MODES.includes(mode)) return;
+    commitEdit();
+    const page = sel.page;
+    pushUndo(page);
+    for (const s of sel.shapes) s.wrap = mode === 'front' || mode === 'behind' ? 'none' : mode;
+    // (in front: above the text; behind: under it)
+    if (mode === 'front' || mode === 'behind') stackSel(mode === 'front');
     rerender(page);
+    showSel();
+    syncToolbar();
   }
 
   function groupSel() {
@@ -5381,10 +5425,11 @@
   $('pageno').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.target.blur(); view.focus({ preventScroll: true }); } });
 
   // drop-down menus
+  for (const b of document.querySelectorAll('#wrappop [data-wrap]')) b.addEventListener('click', () => setWrap(b.dataset.wrap));
   // (the symbols list shows the recently used ones as of now)
   $('addsym').addEventListener('click', buildSymbolPop);
   on('addpagenum', insertPageNumber);
-  for (const [btn, menu] of [['linkbtn', 'linkpop'], ['shapesbtn', 'shapepop'], ['bulmenu', 'bulpop'], ['nummenu', 'numpop'], ['spbtn', 'sppop'], ['addtable', 'tblpop'], ['addsym', 'sympop']]) {
+  for (const [btn, menu] of [['linkbtn', 'linkpop'], ['shapesbtn', 'shapepop'], ['bulmenu', 'bulpop'], ['nummenu', 'numpop'], ['spbtn', 'sppop'], ['addtable', 'tblpop'], ['addsym', 'sympop'], ['wrapbtn', 'wrappop']]) {
     $(btn).addEventListener('click', (e) => {
       e.stopPropagation();
       const open = $(menu).hidden;
@@ -5596,7 +5641,7 @@
       armTool, cancelTool, tool: () => tool, snapTargets, snap1, showCtx, hideCtx, openSwatches, hideSwatches, setArrows, picturesAdded,
       autosaveNow, docJsonLive, checkUnsaved, setUnsavedSince: (t) => { unsavedSince = t; },
       editWordArt, endWordArt, fitBoxToText, shrinkTextToFit, overflowing, openPick, closePick, applyPick,
-      armLink, linkTo, breakLink, stepLinked, chainOf, linkSource, insertSymbol, insertPageNumber, waEditing: () => !!waEdit,
+      armLink, linkTo, breakLink, stepLinked, chainOf, linkSource, insertSymbol, insertPageNumber, waEditing: () => !!waEdit, setWrap, wrapModeOf,
       pickRows: () => pick.rows.map((d) => d.dataset.v), systemFonts: () => systemFonts, loadSystemFonts,
     },
   };

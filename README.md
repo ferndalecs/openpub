@@ -61,7 +61,8 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
     shapes and lines are drawn with the mouse (choose the tool, then click on the page or drag);
     while moving, sizing or drawing, edges and centres line up with the page edges, centre and
     margins and with other objects, shown by pink guides (Alt to place freely). A right-click
-    menu has the common commands.
+    menu has the common commands. Wrap text (Shape Format): Square, Tight, Top and bottom, In
+    front of text or Behind text.
   * Text: double-click to type, or select a box and just start typing (also in table cells and
     linked text boxes, where the text flows on through the chain); spelling checked as you type;
     font (a list of the computer's fonts, each shown in its own lettering, with the
