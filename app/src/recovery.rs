@@ -50,7 +50,8 @@ fn lock_path(file: &Path) -> PathBuf {
 
 /// The folder for copies that can't go next to their publication.
 pub fn fallback_dir() -> Option<PathBuf> {
-    std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("OpenPub").join("recovery"))
+    // (the person's profile, or the temporary folder when the profile can't be written to)
+    crate::recent::app_dir().map(|d| d.join("recovery"))
 }
 
 /// Where the copy of the publication at `original` goes, next to it.

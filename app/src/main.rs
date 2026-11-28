@@ -312,8 +312,6 @@ fn main() -> wry::Result<()> {
     // Once the program's page has loaded, the window never navigates again: no reloading (F5, the
     // context menu's Refresh), which would throw away unsaved changes.
     let page_ready = Arc::new(AtomicBool::new(false));
-    let nav_ready = page_ready.clone();
-    let ipc_ready = page_ready.clone();
     let mut untitled = 0;
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
@@ -332,67 +330,45 @@ fn main() -> wry::Result<()> {
     }
     let window = builder.build(&event_loop).expect("window");
 
-    let serve_state = state.clone();
-    let ipc_state = state.clone();
-    let ipc_proxy = proxy.clone();
-    let drop_proxy = proxy.clone();
     // WebView2 keeps its working files (cache, settings) in a folder: by default next to the
     // program, which ordinary users can't write to once it is installed in Program Files. Use the
-    // person's own profile.
-    let data_dir = std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("OpenPub").join("WebView2"));
-    if let Some(d) = &data_dir {
-        let _ = std::fs::create_dir_all(d);
+    // person's own profile - or, where that can't be written to (a broken or redirected profile
+    // on a school PC), the temporary folder: without a folder it can write to, the window can't
+    // start at all.
+    let mut data_dirs: Vec<PathBuf> = recent::app_dirs().into_iter().map(|d| d.join("WebView2")).filter(|d| recent::writable(d)).collect();
+    if data_dirs.is_empty() {
+        data_dirs = recent::app_dirs().into_iter().map(|d| d.join("WebView2")).collect();
     }
-    let mut web_context = wry::WebContext::new(data_dir);
-    let webview = WebViewBuilder::new_with_web_context(&mut web_context)
-        // the window never leaves the program's own page, opens no other windows, downloads nothing
-        .with_navigation_handler(move |url| own_page(&url) && !nav_ready.load(Ordering::SeqCst))
-        // browser keys (F5 reload, Ctrl+F browser find, Ctrl+P browser print...) are the program's own
-        .with_browser_accelerator_keys(false)
-        .with_focused(!quiet)
-        .with_new_window_req_handler(|_url, _features| wry::NewWindowResponse::Deny)
-        .with_download_started_handler(|_url, _path| false)
-        .with_custom_protocol("openpub".into(), move |_id, request| serve(&serve_state, request))
-        .with_ipc_handler(move |req: Request<String>| on_message(req.body(), &ipc_state, &ipc_proxy, &ipc_ready))
-        .with_drag_drop_handler(move |e| {
-            match e {
-                DragDropEvent::Enter { paths, .. } => {
-                    let _ = drop_proxy.send_event(UserEvent::Drag(dropped(&paths)));
-                }
-                DragDropEvent::Leave => {
-                    let _ = drop_proxy.send_event(UserEvent::Drag(0));
-                }
-                DragDropEvent::Drop { paths, position } => {
-                    let _ = drop_proxy.send_event(UserEvent::Drag(0));
-                    // pictures are added where they're dropped; a publication is opened
-                    if dropped(&paths) == 2 {
-                        let _ = drop_proxy.send_event(UserEvent::AddPictures { paths, at: Some((position.0 as f64, position.1 as f64)) });
-                    } else if let Some(p) = paths.iter().find(|p| !is_picture(p)).or(paths.first()) {
-                        let _ = drop_proxy.send_event(UserEvent::Open { path: p.clone(), asked: false });
-                    }
-                }
-                _ => {}
-            }
-            true
-        })
-        .with_devtools(cfg!(debug_assertions))
-        .with_url("openpub://localhost/index.html")
-        .build(&window);
+    let mut contexts: Vec<wry::WebContext> = data_dirs.into_iter().map(|d| wry::WebContext::new(Some(d))).collect();
+    let mut attempt = 0;
+    let webview = loop {
+        let built = make_webview(&window, contexts.get_mut(attempt), &state, &proxy, &page_ready, quiet);
+        match built {
+            Ok(w) => break Ok(w),
+            // (the next folder, if there is one)
+            Err(_) if attempt + 1 < contexts.len() => attempt += 1,
+            Err(e) => break Err(e),
+        }
+    };
     let webview = match webview {
         Ok(w) => w,
         Err(e) => {
             // most likely the Microsoft Edge WebView2 Runtime is missing or damaged: say so, rather
-            // than closing without a word
-            rfd::MessageDialog::new()
-                .set_title("OpenPub")
-                .set_level(rfd::MessageLevel::Error)
-                .set_description(format!("OpenPub couldn't start its window. It needs the Microsoft Edge WebView2 Runtime, which may be missing or out of date on this computer - ask your IT support to install or repair it.
+            // than closing without a word (a test run only reports it)
+            if !testing {
+                rfd::MessageDialog::new()
+                    .set_title("OpenPub")
+                    .set_level(rfd::MessageLevel::Error)
+                    .set_description(format!("OpenPub couldn't start its window. It needs the Microsoft Edge WebView2 Runtime, which may be missing or out of date on this computer - ask your IT support to install or repair it.
 
 ({e})"))
-                .show();
+                    .show();
+            }
             return Err(e);
         }
     };
+    // (the working folder in use must live as long as the window)
+    let _web_context = contexts;
 
     let initial_path = initial.clone();
     if let Some(p) = initial {
@@ -844,6 +820,62 @@ fn main() -> wry::Result<()> {
             _ => {}
         }
     });
+}
+
+/// The program's page in the window, its working files in `context`'s folder (or WebView2's own
+/// choice without one).
+fn make_webview(
+    window: &tao::window::Window,
+    context: Option<&mut wry::WebContext>,
+    state: &Arc<Mutex<State>>,
+    proxy: &tao::event_loop::EventLoopProxy<UserEvent>,
+    page_ready: &Arc<AtomicBool>,
+    quiet: bool,
+) -> wry::Result<wry::WebView> {
+    let serve_state = state.clone();
+    let ipc_state = state.clone();
+    let ipc_proxy = proxy.clone();
+    let drop_proxy = proxy.clone();
+    let nav_ready = page_ready.clone();
+    let ipc_ready = page_ready.clone();
+    let builder = match context {
+        Some(c) => WebViewBuilder::new_with_web_context(c),
+        None => WebViewBuilder::new(),
+    };
+    builder
+        // the window never leaves the program's own page, opens no other windows, downloads nothing
+        .with_navigation_handler(move |url| own_page(&url) && !nav_ready.load(Ordering::SeqCst))
+        // browser keys (F5 reload, Ctrl+F browser find, Ctrl+P browser print...) are the program's own
+        .with_browser_accelerator_keys(false)
+        .with_focused(!quiet)
+        .with_new_window_req_handler(|_url, _features| wry::NewWindowResponse::Deny)
+        .with_download_started_handler(|_url, _path| false)
+        .with_custom_protocol("openpub".into(), move |_id, request| serve(&serve_state, request))
+        .with_ipc_handler(move |req: Request<String>| on_message(req.body(), &ipc_state, &ipc_proxy, &ipc_ready))
+        .with_drag_drop_handler(move |e| {
+            match e {
+                DragDropEvent::Enter { paths, .. } => {
+                    let _ = drop_proxy.send_event(UserEvent::Drag(dropped(&paths)));
+                }
+                DragDropEvent::Leave => {
+                    let _ = drop_proxy.send_event(UserEvent::Drag(0));
+                }
+                DragDropEvent::Drop { paths, position } => {
+                    let _ = drop_proxy.send_event(UserEvent::Drag(0));
+                    // pictures are added where they're dropped; a publication is opened
+                    if dropped(&paths) == 2 {
+                        let _ = drop_proxy.send_event(UserEvent::AddPictures { paths, at: Some((position.0 as f64, position.1 as f64)) });
+                    } else if let Some(p) = paths.iter().find(|p| !is_picture(p)).or(paths.first()) {
+                        let _ = drop_proxy.send_event(UserEvent::Open { path: p.clone(), asked: false });
+                    }
+                }
+                _ => {}
+            }
+            true
+        })
+        .with_devtools(cfg!(debug_assertions))
+        .with_url("openpub://localhost/index.html")
+        .build(window)
 }
 
 /// A link OpenPub will hand to Windows: web and e-mail addresses only (other kinds can start

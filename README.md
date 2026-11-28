@@ -148,8 +148,10 @@ OpenPub opens files other people made, so it treats them as untrusted:
 * Links on objects open only after a question, and only `http`, `https` and `mailto` addresses.
   Nothing embedded in a document is ever run.
 * WebView2 keeps its working files in `%LOCALAPPDATA%\OpenPub\WebView2`, the recent-files list
-  and settings in `%LOCALAPPDATA%\OpenPub`. Apart from the recovery copies described above,
-  the program writes nowhere else unless asked to save or export.
+  and settings in `%LOCALAPPDATA%\OpenPub` - or, on an account whose profile can't be written to
+  (a broken or redirected profile), in `%TEMP%\OpenPub` (the recovery copies too). Apart from
+  the recovery copies described above, the program writes nowhere else unless asked to save or
+  export.
 * `python tools/fuzz.py [runs] [seed] [slug,slug]` damages copies of sample files in thousands
   of ways and checks the reader never crashes or hangs on them (by default the smaller samples
   and the shapes probe; name samples to include the large ones). The reader's unit tests feed
@@ -193,7 +195,9 @@ text that doesn't fit). `tools/booktest.js` covers pattern fills and booklets; `
 fit), the page sizes and the tooltips. `tools/drawtest.js` covers drawing with the mouse, snapping,
 the right-click menu, colour swatches, arrowheads and pictures by paste and drop.
 `tools/rectest.ps1` checks recovery copies: a window is killed mid-work
-and the next one must offer the changes back.; results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the
+and the next one must offer the changes back, and a publication in a folder the person can only
+read keeps its copy in their own folder without writing anything beside it (its windows open on
+another monitor, without a console); results are printed as `[page] …` lines. `tools/docx-feat.sh` exports the
 feature samples to Word, opens each in Word and compares them with Publisher's pages;
 `tools/docx-open.ps1` checks that Word accepts an exported document and lists its links.
 

@@ -5,8 +5,41 @@ use std::path::{Path, PathBuf};
 
 const MAX: usize = 15;
 
+/// The folders OpenPub can keep its own files in, best first: the person's profile
+/// (%LOCALAPPDATA%\OpenPub), then the temporary folder (%TEMP%\OpenPub) for an account whose
+/// profile can't be written to (a broken or redirected profile on a school PC).
+pub fn app_dirs() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for var in ["LOCALAPPDATA", "TEMP", "TMP"] {
+        if let Some(d) = std::env::var_os(var) {
+            let p = PathBuf::from(d).join("OpenPub");
+            if !out.contains(&p) {
+                out.push(p);
+            }
+        }
+    }
+    out
+}
+
+/// The first of [`app_dirs`] that can really be written to (made if need be), found once.
+pub fn app_dir() -> Option<PathBuf> {
+    static DIR: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| app_dirs().into_iter().find(|d| writable(d))).clone()
+}
+
+/// Whether files can be made in `dir` (made if it isn't there).
+pub fn writable(dir: &Path) -> bool {
+    if std::fs::create_dir_all(dir).is_err() {
+        return false;
+    }
+    let probe = dir.join(format!(".write-test-{}", std::process::id()));
+    let ok = std::fs::write(&probe, b"ok").is_ok();
+    let _ = std::fs::remove_file(&probe);
+    ok
+}
+
 fn store() -> Option<PathBuf> {
-    std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("OpenPub").join("recent.json"))
+    app_dir().map(|d| d.join("recent.json"))
 }
 
 pub fn list() -> Vec<PathBuf> {
@@ -56,7 +89,7 @@ pub fn contains(path: &Path) -> bool {
 }
 
 fn settings_file() -> Option<PathBuf> {
-    std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("OpenPub").join("settings.json"))
+    app_dir().map(|d| d.join("settings.json"))
 }
 
 /// Whether the person has already answered the "open .pub files with OpenPub?" question.
