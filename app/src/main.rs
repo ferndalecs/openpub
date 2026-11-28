@@ -39,6 +39,9 @@ struct State {
     scaled: std::collections::HashMap<(usize, u32, usize), Option<(&'static str, Vec<u8>)>>,
     /// The file the document came from.
     path: Option<PathBuf>,
+    /// That file's last-modified time and size when this window opened or saved it: a different
+    /// one at the next save means someone else saved it in between (a shared classroom folder).
+    stamp: Option<(std::time::SystemTime, u64)>,
     /// Unsaved changes (reported by the page).
     dirty: bool,
     /// A test script is driving the program (no questions, nothing remembered).
@@ -78,6 +81,8 @@ fn recover(state: &Mutex<State>, file: &Path) -> Result<String, String> {
     st.json = Some(json);
     st.images = images;
     st.scaled.clear();
+    // (the changes recovered are on top of the file as it is now)
+    st.stamp = meta.original.as_deref().and_then(file_stamp);
     st.path = meta.original.clone();
     st.name = name.clone();
     st.dirty = true;
@@ -229,6 +234,19 @@ fn serve(state: &Mutex<State>, request: Request<Vec<u8>>) -> Response<Cow<'stati
 
 fn file_name(path: &Path) -> String {
     path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+}
+
+/// A file's last-modified time and size (None if it isn't there).
+fn file_stamp(path: &Path) -> Option<(std::time::SystemTime, u64)> {
+    let m = std::fs::metadata(path).ok()?;
+    Some((m.modified().ok()?, m.len()))
+}
+
+/// "Poster (2).opub", "Poster (3).opub"... the first name not taken in the same folder.
+fn copy_name(path: &Path) -> Option<PathBuf> {
+    let stem = path.file_stem()?.to_string_lossy().to_string();
+    let ext = path.extension().map(|e| e.to_string_lossy().to_string()).unwrap_or_else(|| "opub".into());
+    (2..1000).map(|n| path.with_file_name(format!("{stem} ({n}).{ext}"))).find(|p| !p.exists())
 }
 
 fn is_opub(path: &Path) -> bool {
@@ -485,6 +503,7 @@ fn main() -> wry::Result<()> {
                         st.json = Some(json);
                         st.images = images;
                         st.scaled.clear();
+                        st.stamp = file_stamp(&path);
                         st.path = Some(path.clone());
                         st.dirty = false;
                     }
@@ -539,6 +558,7 @@ fn main() -> wry::Result<()> {
                     st.images = Vec::new();
                     st.scaled.clear();
                     st.path = None;
+                    st.stamp = None;
                     st.dirty = false;
                 }
                 window.set_title(&format!("{name} – OpenPub"));
@@ -562,7 +582,40 @@ fn main() -> wry::Result<()> {
                         dlg.save_file().map(|p| if is_opub(&p) { p } else { with_ext(p, "opub") })
                     }
                 };
-                let Some(target) = target else { return };
+                let Some(mut target) = target else { return };
+                // Someone else (another pupil, another window) saved this file after this window
+                // opened or saved it: saving now would throw their changes away without a word.
+                let mut kept_both = false;
+                let (stamp, answer_for_tests) = {
+                    let st = state.lock().unwrap();
+                    (st.stamp, st.test_answer)
+                };
+                let same_file = current.as_deref().is_some_and(|c| c == target.as_path());
+                let changed = same_file && stamp.is_some() && file_stamp(&target).is_some_and(|now| Some(now) != stamp);
+                if changed {
+                    let answer = if testing {
+                        if answer_for_tests { rfd::MessageDialogResult::Yes } else { rfd::MessageDialogResult::No }
+                    } else {
+                        rfd::MessageDialog::new()
+                            .set_parent(&window)
+                            .set_title("OpenPub - someone else saved this publication")
+                            .set_level(rfd::MessageLevel::Warning)
+                            .set_description(format!("\u{201c}{}\u{201d} has been saved by someone else (or in another OpenPub window) since you opened it. Saving now would replace their changes with yours.\n\nYes \u{2013} keep both: save yours as \u{201c}{}\u{201d}\nNo \u{2013} replace their changes with yours\nCancel \u{2013} don't save now", file_name(&target), copy_name(&target).map(|p| file_name(&p)).unwrap_or_default()))
+                            .set_buttons(rfd::MessageButtons::YesNoCancel)
+                            .show()
+                    };
+                    match answer {
+                        rfd::MessageDialogResult::Yes => match copy_name(&target) {
+                            Some(c) => {
+                                target = c;
+                                kept_both = true;
+                            }
+                            None => return error(&webview, "Couldn't save: use File > Save As to save under another name."),
+                        },
+                        rfd::MessageDialogResult::No => {}
+                        _ => return,
+                    }
+                }
                 let keep = forced.is_none() && !testing;
                 let result = {
                     let st = state.lock().unwrap();
@@ -574,6 +627,7 @@ fn main() -> wry::Result<()> {
                         {
                             let mut st = state.lock().unwrap();
                             st.path = Some(target.clone());
+                            st.stamp = file_stamp(&target);
                             st.name = file_name(&target);
                             st.dirty = false;
                         }
@@ -582,6 +636,9 @@ fn main() -> wry::Result<()> {
                             recent::add(&target);
                         }
                         let _ = webview.evaluate_script(&format!("window.OpenPubApp && OpenPubApp.saved({}, {})", js_string(&file_name(&target)), js_string(&target.to_string_lossy())));
+                        if kept_both {
+                            note(&webview, &format!("Saved your version as {} - the other one is kept as it was.", file_name(&target)));
+                        }
                         if then == Then::Close {
                             *control_flow = ControlFlow::Exit;
                         }
@@ -994,6 +1051,15 @@ fn on_message(body: &str, state: &Mutex<State>, proxy: &EventLoopProxy<UserEvent
         }
         Some("autosaveTest") if cfg!(debug_assertions) => {
             state.lock().unwrap().autosave_test = true;
+            return;
+        }
+        // test aid: as if someone else had just saved the open file (a later modified time)
+        Some("otherSaveTest") if cfg!(debug_assertions) => {
+            if let Some(p) = state.lock().unwrap().path.clone() {
+                if let Ok(f) = std::fs::File::options().write(true).open(&p) {
+                    let _ = f.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5));
+                }
+            }
             return;
         }
         // test aids: answer "lose the changes?", open any file, report the program's state

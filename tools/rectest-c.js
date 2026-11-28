@@ -10,14 +10,14 @@ const state = async () => (await fetch('state.json?v=' + Date.now())).json();
 (async () => {
   try {
     T.send({ cmd: 'autosaveTest' });
-    T.addBasic('rect'); await wait(200);
+    T.addBasic(1); await wait(200);
     T.autosaveNow(); await wait(2000);
     check('a copy is kept', !!(await state()).recovery);
     // a new publication, unsaved for a while
     T.send({ cmd: 'new', width: 595.276, height: 841.89 });
     await wait(1500);
     check('starting a new publication lets the old copy go', !(await state()).recovery);
-    T.addBasic('rect'); await wait(200);
+    T.addBasic(1); await wait(200);
     T.checkUnsaved();
     check('no reminder straight away', $('savebar').hidden);
     T.setUnsavedSince(Date.now() - 6 * 60000);

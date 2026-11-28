@@ -91,6 +91,9 @@ powershell -File installer/build.ps1 -BuildApp         # installer/dist/OpenPub.
   * Undo/redo with Ctrl+Z / Ctrl+Y.
 * **Save** to OpenPub's own format, `.opub` (a zip with `document.json` and the pictures).
   OpenPub does not write `.pub` files: the original is never modified.
+* **Shared folders**: saving over a publication that someone else (or another OpenPub window)
+  saved after it was opened asks first: keep both (yours is saved as "name (2).opub" next to
+  it) or replace theirs - nobody's changes disappear without a word.
 * **Recovery copies**: while there are unsaved changes, a copy is written every 30 seconds (a
   hidden `~$<name>.recovery.opub` next to the publication, or in `%LOCALAPPDATA%\OpenPub\recovery`
   for a new or read-only one). If OpenPub or the computer stops before the work is saved, the
@@ -191,7 +194,7 @@ setup, `tools/extratest.js` for WordArt, effects, links, table styles, picture a
 the page picture and the designs, `tools/wraptest.js` for editing text that flows round a
 shape, `tools/safetytest.js` for not losing unsaved work, `tools/linktest.js` for linked text boxes
 and text positions, `tools/texttest.js` for the font and size lists, WordArt typed on the page and
-text that doesn't fit). `tools/booktest.js` covers pattern fills and booklets; `tools/bordertest.js` picture borders and 3-D WordArt; `tools/gaptest.js` the marker on turned boxes, PDF links and pictures in shapes in Word; `tools/holetest.js` (on the Cymru textbook) text carried on past boxes in the middle of a line, freeform shapes and unhyphenated Welsh text; `tools/a11ytest.js` accessibility: names for screen readers, WCAG AA contrast and focus styles on every ribbon tab, the File screen and Help, and working the page with the keyboard (Tab / Shift+Tab step through the objects, Esc then Tab leaves the page); `tools/pdftest.js` (Year 7 booklet) pictures asked for at the size they are shown while a PDF is made (the PDF must come out under 5 MB). `tools/helptest.js` covers the help page, the table grid, the designs (all their text must
+text that doesn't fit). `tools/booktest.js` covers pattern fills and booklets; `tools/bordertest.js` picture borders and 3-D WordArt; `tools/gaptest.js` the marker on turned boxes, PDF links and pictures in shapes in Word; `tools/holetest.js` (on the Cymru textbook) text carried on past boxes in the middle of a line, freeform shapes and unhyphenated Welsh text; `tools/a11ytest.js` accessibility: names for screen readers, WCAG AA contrast and focus styles on every ribbon tab, the File screen and Help, and working the page with the keyboard (Tab / Shift+Tab step through the objects, Esc then Tab leaves the page); `tools/pdftest.js` (Year 7 booklet) pictures asked for at the size they are shown while a PDF is made (the PDF must come out under 5 MB); `tools/sharetest.js` saving over a publication someone else has saved since (keep both / replace). `tools/helptest.js` covers the help page, the table grid, the designs (all their text must
 fit), the page sizes and the tooltips. `tools/drawtest.js` covers drawing with the mouse, snapping,
 the right-click menu, colour swatches, arrowheads and pictures by paste and drop.
 `tools/rectest.ps1` checks recovery copies: a window is killed mid-work

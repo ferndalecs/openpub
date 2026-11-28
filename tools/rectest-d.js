@@ -11,7 +11,7 @@ const state = async () => (await fetch('state.json?v=' + Date.now())).json();
   try {
     check('a publication in a read-only folder opens', !!T.doc() && T.doc().pages.length > 0);
     T.send({ cmd: 'autosaveTest' });
-    T.addBasic('rect'); await wait(200);
+    T.addBasic(1); await wait(200);
     T.autosaveNow(); await wait(2000);
     const st = await state();
     check('its recovery copy goes to the user\'s own folder', !!st.recovery && /OpenPub[\\/]recovery[\\/]/.test(st.recovery), st.recovery);
