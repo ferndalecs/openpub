@@ -179,7 +179,7 @@ setup, `tools/extratest.js` for WordArt, effects, links, table styles, picture a
 the page picture and the designs, `tools/wraptest.js` for editing text that flows round a
 shape, `tools/safetytest.js` for not losing unsaved work, `tools/linktest.js` for linked text boxes
 and text positions, `tools/texttest.js` for the font and size lists, WordArt typed on the page and
-text that doesn't fit). `tools/booktest.js` covers pattern fills and booklets; `tools/bordertest.js` picture borders and 3-D WordArt; `tools/gaptest.js` the marker on turned boxes, PDF links and pictures in shapes in Word. `tools/helptest.js` covers the help page, the table grid, the designs (all their text must
+text that doesn't fit). `tools/booktest.js` covers pattern fills and booklets; `tools/bordertest.js` picture borders and 3-D WordArt; `tools/gaptest.js` the marker on turned boxes, PDF links and pictures in shapes in Word; `tools/holetest.js` (on the Cymru textbook) text carried on past boxes in the middle of a line. `tools/helptest.js` covers the help page, the table grid, the designs (all their text must
 fit), the page sizes and the tooltips. `tools/drawtest.js` covers drawing with the mouse, snapping,
 the right-click menu, colour swatches, arrowheads and pictures by paste and drop.
 `tools/rectest.ps1` checks recovery copies: a window is killed mid-work
@@ -214,6 +214,8 @@ feature samples to Word, opens each in Word and compares them with Publisher's p
     Publisher puts it.
   * When text doesn't fit a centred or bottom-aligned frame, Publisher drops the lines that
     don't fit before aligning; OpenPub aligns all of them.
+  * Some tables that Publisher shows with white cells (no fill stored for them in the file)
+    are see-through in OpenPub; what tells Publisher to fill them isn't known yet.
 * Editing: undo while typing is per editing session. When a shape that text flows around is
   moved in a document saved by Publisher, the text follows Publisher's saved list of what it
   flows around (shapes added in OpenPub always count). Editing a text box removes any optional

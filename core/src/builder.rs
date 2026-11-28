@@ -402,6 +402,8 @@ struct Conv<'a> {
     image_of_blip: HashMap<u32, usize>,
     /// picture border number -> its tiles as pictures of the document (None: couldn't be drawn)
     border_tiles: HashMap<u32, Option<Vec<usize>>>,
+    /// keyed_image results: (picture, colour) -> picture with that colour see-through
+    keyed: HashMap<(usize, u32), usize>,
 }
 
 #[derive(Clone, Copy)]
@@ -471,6 +473,38 @@ impl<'a> Conv<'a> {
         self.images.push(Image { mime: mime.into(), bytes, orientation });
         self.image_of_blip.insert(pib, self.images.len() - 1);
         Some(self.images.len() - 1)
+    }
+
+    /// Picture `i` with every pixel of colour `key` (#rrggbb) see-through, as a PNG (once per
+    /// picture and colour); the picture itself if it can't be decoded (metafiles).
+    fn keyed_image(&mut self, i: usize, key: &str) -> usize {
+        let Ok(rgb) = u32::from_str_radix(key.trim_start_matches('#'), 16) else { return i };
+        let k = (i, rgb);
+        if let Some(j) = self.keyed.get(&k) {
+            return *j;
+        }
+        let src = &self.images[i];
+        let orientation = src.orientation;
+        let out = image::load_from_memory(&src.bytes).ok().and_then(|img| {
+            let mut px = img.to_rgba8();
+            let [r, g, b] = [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8];
+            for p in px.pixels_mut() {
+                if p[0] == r && p[1] == g && p[2] == b {
+                    p[3] = 0;
+                }
+            }
+            let mut png = Vec::new();
+            px.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok().map(|_| png)
+        });
+        let j = match out {
+            Some(bytes) => {
+                self.images.push(Image { mime: "image/png".into(), bytes, orientation });
+                self.images.len() - 1
+            }
+            None => i,
+        };
+        self.keyed.insert(k, j);
+        j
     }
 
     /// The tiles of picture border `n`, drawn as PNG pictures (once per publication).
@@ -849,8 +883,7 @@ impl<'a> Conv<'a> {
         let is_text_box = s.shape_type == 202;
         let is_table = self.info.tables.contains_key(&seq);
         let is_line = matches!(s.shape_type, 20 | 32..=40);
-        let mut sh = Shape { seq, shape_type: s.shape_type, x, y, w, h, rotation, flip_h: s.flags & 0x40 != 0, flip_v: s.flags & 0x80 != 0, from_master, ..Default::default() };
-        // Office defaults: shapes are filled white and outlined black unless they say otherwise;
+        let mut sh = Shape { seq, shape_type: s.shape_type, x, y, w, h, rotation, flip_h: s.flags & 0x40 != 0, flip_v: s.flags & 0x80 != 0, from_master, ..Default::default() };        // Office defaults: shapes are filled white and outlined black unless they say otherwise;
         // pictures have neither by default
         let default_on = !s.props.contains_key(&0x104);
         sh.fill = if is_line || is_table { None } else { self.fill(s, default_on) };
@@ -871,6 +904,11 @@ impl<'a> Conv<'a> {
         }
         if let Some(pib) = s.props.get(&0x104).copied() {
             sh.image = self.image(pib);
+            // "Set Transparent Color": that colour of the picture is see-through (Cymru p39: a
+            // white grid picture over a pink frame)
+            if let (Some(i), Some(key)) = (sh.image, s.props.get(&0x107).copied().filter(|v| *v != 0xffff_ffff).and_then(|v| self.color(v))) {
+                sh.image = Some(self.keyed_image(i, &key));
+            }
             let crop = [0x102u16, 0x100, 0x103, 0x101].map(|id| s.props.get(&id).map(|v| *v as i32 as f64 / 65536.0).unwrap_or(0.0));
             if crop.iter().any(|c| *c != 0.0) {
                 sh.crop = Some(crop);
@@ -1058,7 +1096,7 @@ pub fn load(path: &std::path::Path) -> Result<Document, String> {
             stories.insert(*id, (k, *a, *b));
         }
     }
-    let mut cv = Conv { info: &info, esc: &esc, text: quill.as_ref().map(|q| TextCtx { q, palette: &info.palette }), stories, cell_shapes, by_seq: by_seq.clone(), border_shapes, page_w, page_h, images: Vec::new(), image_of_blip: HashMap::new(), border_tiles: HashMap::new() };
+    let mut cv = Conv { info: &info, esc: &esc, text: quill.as_ref().map(|q| TextCtx { q, palette: &info.palette }), stories, cell_shapes, by_seq: by_seq.clone(), border_shapes, page_w, page_h, images: Vec::new(), image_of_blip: HashMap::new(), border_tiles: HashMap::new(), keyed: HashMap::new() };
     let masters: HashMap<u32, &PageInfo> = info.pages.iter().filter(|p| p.is_master).map(|p| (p.seq, p)).collect();
     for p in info.pages.iter().filter(|p| !p.is_master && p.visible) {
         let number = doc.pages.len() as u32 + 1;

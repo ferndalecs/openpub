@@ -1403,6 +1403,8 @@
   // the typing is committed)
   function onEditInput() {
     setDirty(true);
+    // an empty line held beside a shape (render.js keepEmptyLines) flows normally once typed in
+    if (editing) for (const p of editing.flow.querySelectorAll('.op-kept')) if (p.textContent.trim()) OpenPub.releaseEmpty(p);
   }
   // (the copy is plain text: the hyphenation points and joiners added for layout are left out)
   function onEditCopy(e) {

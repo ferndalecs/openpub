@@ -153,7 +153,7 @@
     span.opBelow = single - (lh + (bm.asc + bm.desc) * run.size) / 2 - shift;
     // for finding the lines again after layout (snapWraps): the CSS baseline below the top of
     // the letters' box, and the line this run asks for (height, baseline below its top)
-    span.opLine = { base: bm.asc * run.size - shift, lh, top: cssBase };
+    span.opLine = { base: bm.asc * run.size - shift, lh, top: cssBase, shift };
     // character spacing: tracking scales every character's width (CSS adds a fixed amount per
     // character, so use the average width of this run's characters); kerning adds points
     let ls = run.kerning || 0;
@@ -301,6 +301,7 @@
         if (run.field) span.dataset.field = run.field;
         if (part === '\t') {
           span.textContent = '';
+          span.opTab = { para: p, def: ctx.defaultTab };
           ctx.tabs.push({ span, para: p, block: d });
         } else if (run.scale > 0 && Math.abs(run.scale - 1) > 0.005 && !run.field) {
           scaledText(span, symbolText(part, run.font), run);
@@ -514,6 +515,32 @@
    * invisible spacer at a word boundary: the line carries on at the far side of the shape, as in
    * Publisher. Spacers have the class op-wrap, which the editor skips when it reads text back.
    */
+  /**
+   * A tab after a spacer (the line carried on past a shape) goes to the next default tab stop
+   * counted from where the text resumes, not from the frame's edge (Cymru p50: three tabs after a
+   * box end 85pt after it). Set tab stops keep their places. fillHoles puts the widths back.
+   */
+  function segmentTabs(flow, k) {
+    for (const t of flow.querySelectorAll('span.op-tab')) {
+      if (!t.opTab) continue;
+      let g = t.previousSibling;
+      while (g && !(g.nodeType === 1 && g.classList.contains('op-gap') && g.opSeg)) g = g.previousSibling;
+      if (!g) continue;
+      const r = t.getBoundingClientRect();
+      const gr = g.getClientRects();
+      const last = gr[gr.length - 1];
+      if (!last || r.bottom < last.top - 0.5 || r.bottom > last.bottom + 0.5) continue; // a spacer on an earlier line
+      const { para, def } = t.opTab;
+      const blk = t.parentNode.getBoundingClientRect();
+      const xa = (r.left - blk.left) / k + (para.left || 0);
+      const stop = (para.tabs || []).find((s) => s.pos > xa + 0.5);
+      const x = (r.left - g.opSeg.left) / k, o = g.opSeg.x1;
+      const w = stop ? stop.pos - xa : o + (Math.floor((x - o + 0.5) / def) + 1) * def - x;
+      if (t.opTabW0 == null) t.opTabW0 = t.style.width;
+      t.style.width = pt(Math.max(0, w));
+    }
+  }
+
   function fillHoles(flow, k) {
     // start afresh: take the spacers out and join the pieces of text they split
     for (const g of [...flow.querySelectorAll('.op-gap')]) g.remove();
@@ -524,6 +551,7 @@
         before.firstChild.appendData(s.firstChild.data);
         s.remove();
       }
+      if (s.opTabW0 != null) { s.style.width = s.opTabW0; s.opTabW0 = null; }
     }
     const W = flow.opWrap;
     if (!W || !W.holes || !W.holes.length) return false;
@@ -538,6 +566,7 @@
     // text in column c is c columns to the left and c column-heights further down the strip
     const cols = flow.opCols;
     for (let guard = 0; guard < 600; guard++) {
+      segmentTabs(flow, k);
       const fr = flow.getBoundingClientRect();
       // the lines, with the pieces of text on each
       const lines = [];
@@ -545,14 +574,22 @@
         if (!para.classList.contains('op-para')) continue;
         for (const span of para.children) {
           const l = span.opLine;
-          if (!l || span.classList.contains('op-gap')) continue;
+          if (!l || span.classList.contains('op-gap') || span.opHang) continue;
+          // a tab is an empty box standing on the line's baseline: it can run into a shape too
+          const tab = span.classList.contains('op-tab');
           for (const r of span.getClientRects()) {
-            if (!r.height) continue;
+            if (!r.height && !tab) continue;
             const c = cols ? Math.max(0, Math.min(cols.n - 1, Math.floor(((r.left - fr.left) / k + 0.5) / (cols.w + cols.gap)))) : 0;
             const left = fr.left + (cols ? c * (cols.w + cols.gap) * k : 0);
-            const base = (r.top - fr.top) / k + l.base + (cols ? c * cols.h : 0);
+            // (a tab's box stands on the baseline, moved by the same shift as the text: take it off)
+            const base = (tab ? (r.bottom - fr.top) / k - (l.shift || 0) : (r.top - fr.top) / k + l.base) + (cols ? c * cols.h : 0);
             let line = lines.find((x) => Math.abs(x.base - base) < 0.6);
+            if (!line && tab) continue;
             if (!line) lines.push((line = { base, above: 0, below: 0, parts: [], left }));
+            if (tab) {
+              line.parts.push({ span, x0: (r.left - left) / k, x1: (r.right - left) / k, top: r.bottom - l.base * k, bottom: r.bottom + (l.lh - l.base) * k });
+              continue;
+            }
             line.above = Math.max(line.above, l.top);
             line.below = Math.max(line.below, l.lh - l.top);
             line.parts.push({ span, x0: (r.left - left) / k, x1: (r.right - left) / k, top: r.top, bottom: r.bottom });
@@ -681,6 +718,48 @@
 
   /** Puts a spacer before the word that reaches across x0 on this piece of a line, so that the
    * word starts at x1. Returns false when there is nothing to move. */
+  /**
+   * Spaces that run into a shape hang there, taking no room, and the next word starts after the
+   * shape (Publisher: "Llafar", 24 spaces, "Darllen" puts Darllen just past the box beside it; the
+   * spaces don't carry on past it). The spaces go in a piece of their own pulled back to no width.
+   */
+  function hangSpaces(part, tn, c, x0, x1, fr, k, box, mkGap, leftW, rightW) {
+    const span = part.span;
+    const text = tn.data;
+    let e = c;
+    while (e < text.length && text[e] === ' ') e++;
+    const r0 = box(c);
+    const sx = r0 ? (r0.left - fr.left) / k : part.x0;
+    if (sx >= x1 - 0.3) return false;
+    const piece = (node, off) => {
+      const s = span.cloneNode(false);
+      s.appendChild(node);
+      s.opLine = span.opLine;
+      s.opTail = true;
+      s.opBelow = span.opBelow;
+      if (span.opOff != null) s.opOff = span.opOff + off;
+      return s;
+    };
+    const before = tn.data.slice(0, c).replace(/­/g, '').length;
+    const rest = tn.splitText(c);
+    const after = e < text.length ? rest.splitText(e - c) : null;
+    const hang = piece(rest, before);
+    hang.opHang = true;
+    span.after(hang);
+    let w = 0;
+    for (const r of hang.getClientRects()) w += r.width;
+    hang.style.marginRight = pt(-w / k);
+    const gap = mkGap(x1 - sx);
+    gap.opSeg = { x0, x1, R: x1 + rightW, left: fr.left };
+    hang.after(gap);
+    if (after) {
+      const tail = piece(after, before + (e - c));
+      tail.style.overflowWrap = 'normal';
+      gap.after(tail);
+    }
+    return true;
+  }
+
   function placeGap(part, x0, x1, fr, k, leftW, rightW) {
     const span = part.span;
     const tn = span.firstChild && span.firstChild.nodeType === 3 ? span.firstChild : null;
@@ -717,6 +796,7 @@
         if ((r.right - fr.left) / k > x0 + 0.3) { c = i; break; }
       }
       if (c < 0) return false;
+      if (text[c] === ' ') return hangSpaces(part, tn, c, x0, x1, fr, k, box, mkGap, leftW, rightW);
       // back to the start of its word (not past the start of this line)
       let j = c;
       while (j > first && !/\s/.test(text[j - 1])) j--;
@@ -1051,6 +1131,52 @@
   }
 
   /**
+   * An empty line needs no room beside a shape: Publisher leaves it where it is wherever the shape
+   * leaves any gap at the side (Cymru p50: an empty line beside the top of a table 7pt in from the
+   * frame's edge). The floats close gaps too narrow for words, so CSS pushes the line below the
+   * shape; hold the paragraph at one line's height with its (invisible) space at the top.
+   * releaseEmpty undoes this once text is typed into it.
+   */
+  function keepEmptyLines(flow, k) {
+    const W = flow.opWrap;
+    if (!W || W.cols || !W.rects) return;
+    const fr = flow.getBoundingClientRect();
+    for (const para of flow.children) {
+      if (!para.classList.contains('op-para') || para.children.length !== 1) continue;
+      const s = para.firstElementChild;
+      if (!s.classList.contains('op-empty') || !s.opLine) continue;
+      const l = s.opLine;
+      const pr = para.getBoundingClientRect();
+      if (pr.height / k <= l.lh + 0.5) continue; // not pushed
+      const y0 = (pr.top - fr.top) / k, y1 = y0 + l.lh;
+      const xs = W.rects.filter((r) => r.y0 < y1 && r.y1 > y0).map((r) => [Math.max(0, r.x0), Math.min(W.cw, r.x1)]).sort((a, b) => a[0] - b[0]);
+      let x = 0, gap = 0;
+      for (const [a, b] of xs) { gap = Math.max(gap, a - x); x = Math.max(x, b); }
+      gap = Math.max(gap, W.cw - x);
+      if (gap < 0.5) continue;
+      para.opKept = { height: para.style.height, position: para.style.position, top: s.style.top, sPos: s.style.position, left: s.style.left };
+      para.classList.add('op-kept');
+      para.style.height = pt(l.lh);
+      para.style.position = 'relative';
+      s.style.position = 'absolute';
+      s.style.left = '0';
+      s.style.top = pt(l.top - l.base);
+    }
+  }
+
+  /** A paragraph held by keepEmptyLines flows like any other again. */
+  function releaseEmpty(para) {
+    const o = para.opKept;
+    if (!o) return;
+    para.opKept = null;
+    para.classList.remove('op-kept');
+    para.style.height = o.height;
+    para.style.position = o.position;
+    const s = para.firstElementChild;
+    if (s) { s.style.position = o.sPos; s.style.top = o.top; s.style.left = o.left; }
+  }
+
+  /**
    * Publisher keeps a frame's lines on a grid, one line height apart: a line that can't sit next
    * to a shape moves down a whole line at a time until it's clear, where CSS puts it right under
    * the shape. Lengthen the floats so such lines land where Publisher puts them.
@@ -1060,6 +1186,7 @@
       if (!flow.isConnected || !flow.opWrap) continue;
       alignWrapped(flow, k);
       fillHoles(flow, k);
+      keepEmptyLines(flow, k);
       let snapped = false;
       const done = new Set();
       for (let pass = 0; pass < 8; pass++) {
@@ -2110,7 +2237,10 @@
         // WordArt wrapped tightly: around its letters, not its whole box
         if (o.wordart && (mode === 'tight' || mode === 'through')) { const h = r[3] - r[1]; r[1] += h * 0.2; r[3] -= h * 0.2; }
         if (r[2] <= fr[0] || r[0] >= fr[2] || r[3] <= fr[1] || r[1] >= fr[3]) continue;
-        const d = o.wrap_dist || [9, 0, 9, 0];
+        // the distance is kept from the outer edge of a border half its width wide, even where the
+        // border is drawn inside the frame (Cymru p50: text resumes 4.4pt after a 3pt-bordered box)
+        const half = o.line && o.line.width > 0 && o.kind !== 'line' ? o.line.width / 2 : 0;
+        const d = (o.wrap_dist || [9, 0, 9, 0]).map((v) => v + half);
         // a shape covering the frame's whole text area - but for strips at the sides too narrow
         // for text - doesn't push its text away
         const m = f.text.margins || [0, 0, 0, 0], SIDE = 12;
@@ -2215,5 +2345,5 @@
     return wrap;
   }
 
-  window.OpenPub = { renderPage, naturalLineHeight, storyChains, sliceStory };
+  window.OpenPub = { renderPage, naturalLineHeight, storyChains, sliceStory, releaseEmpty };
 })();
