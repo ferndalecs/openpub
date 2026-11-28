@@ -1668,7 +1668,8 @@
     editShapes((s) => {
       if (!s.wordart) return;
       if (change) Object.assign(s.wordart, change);
-      if (type) s.shape_type = type;
+      // (another style: its own default shape, not the old style's adjustment)
+      if (type && type !== s.shape_type) { s.shape_type = type; delete s.adjust; }
     }, true);
   }
   /** A pattern (16 hex digits, see model.rs) in the fill colour on white; '' for none. */

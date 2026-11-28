@@ -1342,7 +1342,7 @@
       svg.appendChild(defs);
       node.setAttribute('fill', `url(#${id})`);
       if (f.opacity < 1) node.setAttribute('fill-opacity', f.opacity);
-    } else if (f && Number.isInteger(f.image) && IMAGE_URL && node.tagName === 'text') {
+    } else if (f && Number.isInteger(f.image) && IMAGE_URL && (node.tagName === 'text' || node.hasAttribute('data-wa'))) {
       // WordArt filled with a picture or texture (marble, wood...): the picture spread over
       // the letters (Publisher repeats a texture at its own size; spread is close on lettering)
       const id = 'opi' + (++gradId);
@@ -1760,17 +1760,17 @@
       146: s(-0.35), 147: s(-0.2), // circle, button: approximated as arches
       148: s(-0.25), 149: s(0.25), 150: s(-0.25), 151: s(-0.2),
       152: (t) => -0.25 * t * t, 153: (t) => 0.25 * t * t, // curve up / down
-      154: (t) => -0.2 * t, 155: (t) => 0.2 * t, // cascade
       156: (t) => 0.06 * Math.sin(2 * Math.PI * t), 157: (t) => -0.06 * Math.sin(2 * Math.PI * t), // wave 1 / 2
       158: (t) => 0.08 * Math.sin(4 * Math.PI * t), 159: (t) => -0.08 * Math.sin(4 * Math.PI * t), // double wave
-      168: (t) => -0.25 * t, 169: (t) => 0.25 * t, // slant up / down
-      174: s(-0.15), 175: s(0.15),
+      // (slant, fade, inflate, deflate, triangle and can: wordArtEnvelope)
     }[type] || null;
   }
 
   /** WordArt: one font size for every line, lines centred, the block stretched to fill the shape. */
   function renderWordArt(shape, svg) {
     const wa = shape.wordart;
+    const env = !wa.vertical && wordArtEnvelope(shape);
+    if (env) return envelopeWordArt(shape, svg, env);
     const lines = String(wa.text || '').replace(/\r\n?/g, '\n').split('\n').filter((l, i, a) => l || a.length === 1);
     const n = Math.max(1, lines.length);
     const W = shape.w, H = shape.h;
@@ -1854,30 +1854,159 @@
       if (shape.line) { t.setAttribute('vector-effect', 'non-scaling-stroke'); t.setAttribute('paint-order', 'stroke'); }
       g.appendChild(t);
     });
-    // 3-D: copies of the letters behind them, stepping back along the depth, in the side colour
-    const ex = wa.extrude;
-    if (ex && isFinite(ex.dx) && isFinite(ex.dy) && Math.hypot(ex.dx, ex.dy) > 0.2) {
-      const len = Math.min(120, Math.hypot(ex.dx, ex.dy));
-      const steps = Math.max(2, Math.min(60, Math.ceil(len / 0.6)));
-      const base = /^#[0-9a-f]{6}$/i.test(ex.color || '') ? ex.color : shadeColor(shape.fill && /^#[0-9a-f]{6}$/i.test(shape.fill.color) ? shape.fill.color : '#808080', -0.45);
-      const back = svgEl('g', {});
-      for (let i = steps; i >= 1; i--) {
-        const f = i / steps;
-        const layer = svgEl('g', { transform: `translate(${ex.dx * f} ${ex.dy * f})` });
-        const copy = g.cloneNode(true);
-        // (the far end a little darker, so the sides read as sides)
-        const c = shadeColor(base, -0.35 * f);
-        for (const t of copy.querySelectorAll('text')) {
-          t.setAttribute('fill', c);
-          t.removeAttribute('fill-opacity');
-          if (i < steps) t.setAttribute('stroke', 'none');
-        }
-        layer.appendChild(copy);
-        back.appendChild(layer);
-      }
-      svg.appendChild(back);
-    }
+    addDepth(shape, svg, g);
     svg.appendChild(g);
+    svg.style.overflow = 'visible';
+    return svg;
+  }
+
+  /** 3-D WordArt: copies of the letters (`g`, a group of text elements) behind them, stepping
+   * back along the depth, in the side colour. */
+  function addDepth(shape, svg, g) {
+    const ex = shape.wordart.extrude;
+    if (!(ex && isFinite(ex.dx) && isFinite(ex.dy) && Math.hypot(ex.dx, ex.dy) > 0.2)) return;
+    const len = Math.min(120, Math.hypot(ex.dx, ex.dy));
+    const steps = Math.max(2, Math.min(60, Math.ceil(len / 0.6)));
+    const base = /^#[0-9a-f]{6}$/i.test(ex.color || '') ? ex.color : shadeColor(shape.fill && /^#[0-9a-f]{6}$/i.test(shape.fill.color) ? shape.fill.color : '#808080', -0.45);
+    const back = svgEl('g', {});
+    for (let i = steps; i >= 1; i--) {
+      const f = i / steps;
+      const layer = svgEl('g', { transform: `translate(${ex.dx * f} ${ex.dy * f})` });
+      const copy = g.cloneNode(true);
+      // (the far end a little darker, so the sides read as sides)
+      const c = shadeColor(base, -0.35 * f);
+      for (const t of copy.querySelectorAll('text')) {
+        t.setAttribute('fill', c);
+        t.removeAttribute('fill-opacity');
+        if (i < steps) t.setAttribute('stroke', 'none');
+      }
+      layer.appendChild(copy);
+      back.appendChild(layer);
+    }
+    svg.appendChild(back);
+  }
+
+  /**
+   * The shaped WordArt styles that fit the words between a top and a bottom edge (Office's text
+   * shapes 138-175 but the arches, circles, curves and waves in wordArtWarp): fractions of the
+   * shape's height at a point t (0-1) along its width, and for "fade up/down" how far the top
+   * leans in. `a` is the style's adjust value (0-1 of the shape), or Office's default.
+   */
+  function wordArtEnvelope(shape) {
+    const adj = shape.adjust && shape.adjust[0] != null ? shape.adjust[0] / 21600 : null;
+    const A = (d) => Math.max(0, Math.min(1, adj == null ? d : adj));
+    const bow = (t) => 4 * t * (1 - t); // 0 at the ends, 1 in the middle
+    const v = (t) => Math.abs(2 * t - 1); // 1 at the ends, 0 in the middle
+    switch (shape.shape_type) {
+      case 138: { const a = A(0.5); return { top: (t) => a * v(t), bottom: () => 1 }; } // triangle up
+      case 139: { const a = A(0.5); return { top: () => 0, bottom: (t) => a + (1 - a) * (1 - v(t)) }; } // triangle down
+      // cascade up / down: rising and growing towards one end
+      case 154: { const a = Math.min(0.8, A(0.44)); return { top: (t) => a * (1 - t), bottom: (t) => 1 - (a / 3) * t }; }
+      case 155: { const a = Math.min(0.8, A(0.44)); return { top: (t) => a * t, bottom: (t) => 1 - (a / 3) * (1 - t) }; }
+      case 160: { const a = A(0.19); return { top: (t) => a * (1 - bow(t)), bottom: (t) => 1 - a * (1 - bow(t)) }; } // inflate
+      case 161: { const a = Math.min(0.45, A(0.19)); return { top: (t) => a * bow(t), bottom: (t) => 1 - a * bow(t) }; } // deflate
+      case 162: { const a = A(0.8); return { top: () => 0, bottom: (t) => a + (1 - a) * bow(t) }; } // inflate bottom
+      case 163: { const a = A(0.5); return { top: () => 0, bottom: (t) => 1 - (1 - a) * bow(t) }; } // deflate bottom
+      case 164: { const a = A(0.2); return { top: (t) => a * (1 - bow(t)), bottom: () => 1 }; } // inflate top
+      case 165: { const a = A(0.5); return { top: (t) => a * bow(t), bottom: () => 1 }; } // deflate top
+      case 168: { const a = Math.min(0.45, A(0.33)); return { top: (t) => a * t, bottom: (t) => 1 - a * t }; } // fade right
+      case 169: { const a = Math.min(0.45, A(0.33)); return { top: (t) => a * (1 - t), bottom: (t) => 1 - a * (1 - t) }; } // fade left
+      case 170: { const a = Math.min(0.45, A(0.1)); return { top: () => 0, bottom: () => 1, lean: a }; } // fade up
+      case 171: { const a = Math.min(0.45, A(0.1)); return { top: () => 0, bottom: () => 1, lean: -a }; } // fade down
+      case 172: { const a = Math.min(0.9, A(0.556)); return { top: (t) => a * (1 - t), bottom: (t) => a * (1 - t) + 1 - a }; } // slant up
+      case 173: { const a = Math.min(0.9, A(0.556)); return { top: (t) => a * t, bottom: (t) => a * t + 1 - a }; } // slant down
+      case 174: { const a = Math.min(0.45, A(0.143)); return { top: (t) => a * (1 - bow(t)), bottom: (t) => 1 - a * bow(t) }; } // can up
+      case 175: { const a = Math.min(0.45, A(0.143)); return { top: (t) => a * bow(t), bottom: (t) => 1 - a + a * bow(t) }; } // can down
+      default: return null;
+    }
+  }
+
+  /** WordArt fitted between the edges of `env` (wordArtEnvelope): each letter scaled to the
+   * height between them where it stands and sheared to follow them. */
+  function envelopeWordArt(shape, svg, env) {
+    const wa = shape.wordart;
+    const lines = String(wa.text || '').replace(/\r\n?/g, '\n').split('\n').filter((l, i, a) => l || a.length === 1);
+    const n = Math.max(1, lines.length);
+    const W = shape.w, H = shape.h;
+    const m = fontMetrics(wa.font, wa.bold, wa.italic);
+    const S = 100; // letters are laid out at 100pt, then scaled
+    const ink = (l) => { const q = l.trim() ? m.inkOf(l) : null; return q && q.a + q.d > 0.3 ? q : { a: m.inkAsc, d: m.inkDesc * 0.5 }; };
+    const letters = svgEl('g', {});
+    lines.forEach((line, i) => {
+      const chars = [...line];
+      const total = chars.reduce((s, ch) => s + m.width(ch) * S, 0);
+      if (!(total > 0)) return;
+      const sx = W / total;
+      const k = ink(line);
+      const edges = (t) => {
+        const top = env.top(t), bottom = env.bottom(t);
+        // (several lines share the height between the edges)
+        return [top + (bottom - top) * i / n, top + (bottom - top) * (i + 1) / n].map((y) => y * H);
+      };
+      // the baseline where a letter's ink fills the band between the edges
+      const base = (t) => { const [y0, y1] = edges(t); return y0 + (y1 - y0) * k.a / (k.a + k.d); };
+      let x = 0;
+      for (const ch of chars) {
+        const cw = m.width(ch) * S;
+        const mid = (x + cw / 2) * sx;
+        x += cw;
+        if (!ch.trim()) continue;
+        const t = Math.max(0, Math.min(1, mid / W));
+        const [y0, y1] = edges(t);
+        const ky = (y1 - y0) / ((k.a + k.d) * S);
+        // the slope of the baseline under the letter (a shear keeps the letter upright)
+        const dt = Math.min(0.02, (cw * sx) / (2 * W));
+        const slope = dt > 0 ? (base(Math.min(1, t + dt)) - base(Math.max(0, t - dt))) / (2 * dt * W) : 0;
+        // fade up / down: the letters lean in towards the middle at the narrow edge (fade down:
+        // pivoting on their tops, which keep the full width)
+        const lean = env.lean ? (t - 0.5) * 2 * env.lean * W / H : 0;
+        const pivot = env.lean < 0 ? lean * ky * k.a * S : 0;
+        const tx = svgEl('text', { 'text-anchor': 'middle', x: 0, y: 0, 'font-size': S });
+        tx.setAttribute('font-family', fontFamily(wa.font));
+        if (wa.bold) tx.setAttribute('font-weight', 'bold');
+        if (wa.italic) tx.setAttribute('font-style', 'italic');
+        tx.setAttribute('transform', `matrix(${sx} ${slope * sx} ${lean * ky} ${ky} ${mid + pivot} ${base(t)})`);
+        tx.textContent = ch;
+        letters.appendChild(tx);
+      }
+    });
+    addDepth(shape, svg, letters);
+    const f = shape.fill;
+    const plain = !f || (!f.color2 && !Number.isInteger(f.image) && !HEX16.test(f.pattern || ''));
+    if (plain) {
+      for (const tx of letters.children) {
+        if (f) paint(tx, { fill: f, line: shape.line }, svg);
+        else paint(tx, { line: shape.line }, svg);
+        if (!f && !shape.line) tx.setAttribute('fill', '#000000');
+        if (shape.line) { tx.setAttribute('vector-effect', 'non-scaling-stroke'); tx.setAttribute('paint-order', 'stroke'); }
+      }
+      svg.appendChild(letters);
+    } else {
+      // a gradient, picture or pattern runs across the whole word: the letters cut it out of
+      // a rectangle the size of the shape (each letter has its own scale, so painting them one
+      // by one would start the gradient again in every letter)
+      const id = 'opm' + (++gradId);
+      const mask = svgEl('mask', { id, maskUnits: 'userSpaceOnUse', x: -W, y: -H, width: 3 * W, height: 3 * H });
+      const cut = letters.cloneNode(true);
+      for (const tx of cut.children) tx.setAttribute('fill', '#ffffff');
+      mask.appendChild(cut);
+      const defs = svgEl('defs', {});
+      defs.appendChild(mask);
+      svg.appendChild(defs);
+      const top = Math.min(0, ...[0, 0.5, 1].map((t) => env.top(t) * H)) - H * 0.1;
+      const rect = svgEl('rect', { x: -W * 0.1, y: top, width: W * 1.2, height: H * 1.2 - top, 'data-wa': 1 });
+      paint(rect, { fill: f }, svg);
+      rect.setAttribute('mask', `url(#${id})`);
+      svg.appendChild(rect);
+      if (shape.line) {
+        for (const tx of letters.children) {
+          tx.setAttribute('fill', 'none');
+          paint(tx, { line: shape.line }, svg);
+          tx.setAttribute('vector-effect', 'non-scaling-stroke');
+        }
+        svg.appendChild(letters);
+      }
+    }
     svg.style.overflow = 'visible';
     return svg;
   }

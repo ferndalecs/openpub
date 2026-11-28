@@ -37,6 +37,17 @@ const check = (name, cond, detail) => {
     check('a "from the centre" gradient is drawn from the middle out', w12 && w12.fill.radial && !!T.shapeEl(0, w12).querySelector('radialGradient'), w12 && w12.fill);
     const w26 = byText('WordArt 26');
     check('focus 50 puts the fill colour in the middle', w26 && w26.fill.stops && w26.fill.stops.length === 3 && Math.abs(w26.fill.stops[1][1] - 0.5) < 0.01, w26 && w26.fill);
+    // ---- WordArt shapes (0.3.15): slant up rises from left to right, deflate pinches the middle
+    const lettersOf = (s) => [...T.shapeEl(0, s).querySelectorAll('svg text')].filter((t) => /matrix/.test(t.getAttribute('transform') || ''));
+    const w1 = byText('WordArt 1');
+    const l1 = w1 && lettersOf(w1);
+    const baseY = (t) => parseFloat(t.getAttribute('transform').split(/[ ()]+/)[6]);
+    check('slant up (WordArt 1) is drawn letter by letter, rising to the right', l1 && l1.length >= 8 && baseY(l1[0]) > baseY(l1[l1.length - 1]) + 10, l1 && l1.map(baseY));
+    const w3 = byText('WordArt 3');
+    const l3 = w3 && lettersOf(w3);
+    const kY = (t) => parseFloat(t.getAttribute('transform').split(/[ ()]+/)[4]);
+    check('deflate (WordArt 3) has smaller letters in the middle', l3 && l3.length >= 8 && kY(l3[Math.floor(l3.length / 2)]) < kY(l3[0]) * 0.9, l3 && l3.map(kY));
+
     const w14 = byText('WordArt 14');
     const tex = w14 && T.shapeEl(0, w14).querySelector('pattern image');
     check('a textured WordArt is filled with its picture', !!tex && !!tex.getAttribute('href'), w14 && w14.fill);

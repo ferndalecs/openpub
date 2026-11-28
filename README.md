@@ -195,11 +195,13 @@ feature samples to Word, opens each in Word and compares them with Publisher's p
     inline table or picture, frames whose paragraphs are aligned differently, and centred or
     right-aligned text with more than one shape beside a line, where it keeps to the wider
     side. Line breaks beside a shape can differ a little.
-  * WordArt: plain, arched, wavy and vertical (stacked) styles are drawn; 3-D WordArt is drawn
+  * WordArt: plain, arched, wavy and vertical (stacked) styles are drawn, and the styles that
+    fit the words between two edges (slant, cascade, inflate, deflate, fade, triangle, can) by
+    scaling and shearing each letter (fade up/down approximated); 3-D WordArt is drawn
     with depth in its side colour, its direction approximated (Office's 3-D projection isn't
     reproduced). Gradients of several colours, gradients from the middle out and texture fills
-    are drawn (a texture is spread over the letters rather than repeated at its own size); slanted
-    and perspective styles come out flat.
+    are drawn (a texture is spread over the letters rather than repeated at its own size); 3-D
+    perspective (WordArt turned in space) comes out flat.
   * BorderArt (picture borders) is drawn from the tiles stored in the file, on Windows. In the
     editor a picture border can be added (eight built-in designs, or one already in the
     publication), resized or taken off. In the Word export it becomes a picture of the border
